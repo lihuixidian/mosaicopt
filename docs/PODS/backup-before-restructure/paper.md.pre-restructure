@@ -1,0 +1,2628 @@
+# MosaicOpt: An Algebraic Foundation for Agentic Memory Databases
+
+> **Draft for discussion.** Sections 3–4 derive from the project design brief
+> (`docs/brief.md`) and are intended to track the formal algebra document
+> (`docs/algebra.md`) when the latter is finalized. All examples in the paper
+> use a running Agentic memory scenario; notation is defined in Section 3.
+> The SQL surface (Section 5) is the locked-in query interface for the
+> prototype and is the subject of `notes/decisions/2026-07-24-sql-extension.md`.
+
+---
+
+## 1. Introduction & Motivation
+
+Large language model (LLM) agents are no longer stateless request–response
+loops. Production agents — coding copilots, personal assistants, autonomous
+research workers, multi-step planners — accumulate state across two
+timescales: **long-term memory**, which persists facts, preferences, and
+episodic traces across sessions; and **short-term memory**, which captures
+the working context of an in-flight session, including tool-call history and
+intermediate reasoning artifacts. This split is widely accepted in the
+agentic-systems literature, but its consequences for the storage layer have
+received less attention.
+
+The content of agentic memory is fundamentally **multi-modal**. A single
+"memory unit" may carry: (i) raw text (a chat snippet, a code diff, a
+document excerpt); (ii) one or more dense vector embeddings, often produced
+by different encoders for different retrieval objectives (e.g. semantic
+similarity, intent classification, code search); (iii) structured metadata
+(timestamps, source, provenance, user tags, confidence scores); and
+(iv) graph structure (entity relations such as `derived_from`,
+`cites`, `contradicts`, `member_of`). A useful query against this store is
+seldom a pure similarity lookup; it is a *conjunctive* expression that mixes
+all four modalities. "Find passages about a fault tolerance bug from the
+last 30 days, semantically similar to this stack trace, attributed to a
+known subsystem, and connected by `derived_from` to a previous incident" is
+representative.
+
+The dominant engineering response is **multi-path recall**: a fan-out
+across specialized engines (a vector index, a full-text index, a
+key–value store, a graph store), each producing a ranked candidate list,
+followed by application-level score fusion and re-ranking. Frameworks
+such as Mem0, Letta, Zep, and Cognee instantiate variations of this
+pattern. It works, and there is no shortage of impressive product
+demonstrations. But the pattern has four structural weaknesses:
+
+1. **No principled semantics.** The semantics of a fused query is defined
+   by the application code that combines the per-channel scores. Two
+   implementations of "find similar memory" in the same product can have
+   silently different meanings.
+2. **Heuristic optimization only.** Without an algebra, there is no
+   equivalence relation over plans. The "optimizer" is a hand-tuned
+   orchestration pipeline whose rewrites are not derived from a sound
+   theory.
+3. **Fusion policy leaks into the substrate.** Score combination functions
+   (e.g. weighted sum, reciprocal-rank fusion, learned rerankers) are
+   application concerns; once baked into a query template, they are hard
+   to change without re-engineering the data path.
+4. **Top-k per column breaks conjunctive intent.** Each vector column is
+   typically searched independently with its own top-k, then intersected.
+   For multi-vector memories, the intersection of per-column top-k sets is
+   frequently empty or impoverished, because the columns are correlated,
+   not redundant.
+
+Our position is that these problems are not implementation details; they
+are symptoms of a missing foundation. **MosaicOpt** proposes an
+*algebra-first* design in which relational algebra is extended with a
+small set of operators that make multi-modal memory queries first-class,
+and in which the resulting algebra — not application code — is the
+substrate contract between query and execution. The optimizer becomes a
+*rule-based* layer driven by an equational theory (Section 4), with a
+*cost-based* layer (Section 7) choosing between physical realizations
+that may legitimately differ in approximation behaviour.
+
+### 1.1 Why algebraic foundation?
+
+Database systems have long benefited from formal foundations. Codd's
+relational algebra [Codd, 1970] and Selinger's cost-based optimizer
+[Selinger et al., 1979] established that query processing benefits from
+a formal language for what is computable and a formal theory for what
+transformations preserve semantics. The Volcano/Cascades line further
+showed that the algebra is the *API*: a new operator is shipped with
+its equivalence rules and cost model, and the optimizer gains new
+capabilities without any central rewrite. **An algebra is not an
+implementation detail; it is the contract between query and execution.**
+When the algebra is rigorous, every query language is a syntactic
+surface over it, every optimizer decision is auditable, and every
+physical innovation is a drop-in.
+
+Formally, an algebra provides four things that no collection of indexes
+and APIs can:
+
+- **A language for expressive power** — a precise definition of what is
+  computable in the system, and what is not.
+- **An equational theory** — a body of identities that govern when one
+  query plan is equivalent to another, the foundation on which any
+  rule-based rewriter rests.
+- **A cost-model framework** — the substrate on which cost-based
+  optimization rests, parameterized by the same logical operators that
+  the user wrote.
+- **Composability** — new operators can be added without breaking old
+  ones, because the algebra is the integration point. The Cascades
+  maxim — *the algebra is the API* — makes extensibility a property of
+  the foundation, not of the optimizer code.
+
+Agentic memory is the *worst case* for a "bag of engines" approach. The
+reasons are structural:
+
+- It spans two timescales (long-term and short-term) that demand
+  different access patterns, lifetime semantics, and consistency
+  guarantees.
+- Its content is genuinely multi-modal: text, multiple vector columns,
+  structured metadata, and graph relations all live on the same memory
+  units.
+- The queries that matter are *conjunctive across modalities* — a
+  vector range intersected with a metadata filter joined with a graph
+  reachability predicate. Ad hoc orchestration is exactly where it
+  fails.
+- There is *convergent evolution* in the field: every Agentic
+  framework (Mem0, Letta, Zep, Cognee) has independently reinvented the
+  same patterns (multi-path recall, score fusion, re-ranking) but with
+  no shared vocabulary, no shared type system, and no shared notion of
+  plan equivalence.
+- The practical consequence: each framework has a different *memory
+  API* with no formal semantics. The same SQL-like query may have
+  silently different meanings across implementations, and porting a
+  workload requires reading source code rather than reasoning from a
+  specification.
+
+### 1.2 Mathematical support for Agentic database development
+
+The algebra gives database researchers and engineers a precise substrate
+on which to develop new query patterns and to *prove* their
+correctness. A new materialization pattern (e.g., a new kind of
+multi-modal fusion, a new join algorithm for hybrid vectors) can be
+expressed as a new operator with a documented equational theory — its
+rewrite rules are *derived* from the algebra, not guessed from
+benchmarks. The optimizer's plan space becomes a *derivable* structure
+rather than a hand-tuned mess: each new operator is added with its
+identities, and the optimizer gains the corresponding rewrites "for
+free". This is exactly the extensibility property of Cascades; the
+algebra is what makes it principled.
+
+A database system built on an algebra exposes a *substrate capability*:
+any application that can express its query in the algebra can take
+advantage of the optimizer's rewrites, and any physical innovation that
+implements an algebraic operator improves every application that uses
+it. This is the foundational insight: the algebra is the *common
+currency* between the application and the engine. Without it, every
+application negotiates with every engine on its own terms; with it, an
+application written once is portable across engines that share the
+algebra, and an engine innovation is portable to every application that
+uses the affected operator. The algebraic foundation is therefore not
+a research luxury — it is the contract that makes the database
+ecosystem composable.
+
+### 1.3 Data substrate for Agentic applications
+
+Four representative Agentic memory use cases illustrate what
+applications need from a substrate:
+
+- **Episodic recall** (debugging copilots, personal assistants, "what
+  did I work on last week"): conjunctive vector + metadata + graph
+  queries, where a single memory unit is retrieved only if it
+  satisfies a similarity predicate *and* a time window *and* a graph
+  reachability test.
+- **Cross-session fact retrieval** (long-term user preferences, learned
+  facts): single-vector or multi-vector recall with structured filters
+  (e.g., a user-scope, a topic filter, a confidence threshold).
+- **Working context assembly** (short-term memory for an in-flight
+  session): fast filtered recall by recency + entity, where latency
+  dominates and the top results must arrive in milliseconds.
+- **Tool-trace analysis** (multi-step agents, planning): graph queries
+  over `derived_from` and `follows` edges, joined with vector
+  similarity on the underlying tool outputs.
+
+All four are *query problems* — they are expressible as expressions
+over a memory store, and they are amenable to the same optimizer
+pipeline. All four benefit from a shared algebraic substrate: the
+optimizer's rewrites (M1, V1, J1, T1, G1) apply to each, and the cost
+model handles the modality-specific physics.
+
+With MosaicOpt's algebra, an Agentic application writes its memory
+query in SQL (Section 5) or in the algebra directly; the substrate
+applies M1-style rewrites to fuse materialization with selection,
+applies V1/J1/T1/G1 rules to push predicates down, and applies
+cost-based physical-operator selection. The application does not have
+to know about ANN indexes, B-trees, or inverted indexes; the substrate hides
+these as physical realizations of a single logical operator. The
+result is that an application that today writes its own multi-path
+orchestrator — with hand-tuned per-channel top-k, hand-tuned fusion
+weights, and hand-tuned thresholds — can be rewritten as a single SQL
+query, and get *principled optimization for free*. This is the
+substrate contract in action: the algebra is what the application
+writes, the algebra is what the optimizer rewrites, and the algebra is
+what the engine realizes. The application's policy (the fusion
+weights, the thresholds, the top-k) stays in the SQL; the substrate's
+responsibility (which index, which join order, which approximation
+budget) is delegated to the optimizer.
+
+### 1.4 Contributions
+
+This paper makes the following contributions:
+
+- **An extended relational algebra for Agentic memory.** We add a
+  *materialization* operator `μ` for binding computed values (vector
+  distances, BM25 scores, derived attributes) so they can be referenced
+  by `ORDER BY` and downstream predicates. We add first-class
+  *vector*, *text*, and *graph* predicates. We add an explicit *graph
+  expansion* operator `Γ`. Bag semantics and a strict
+  logical/physical separation complete the model (Section 3).
+- **An equational theory with proofs.** We state and prove a set of
+  identities — selection/materialization commutativity (M1–M3), vector
+  selection commutativity and join pushdown (V1, J1), the
+  `τ`+`Λ` ⇄ `topK` equivalence (T1), and graph expansion pushdown
+  (G1) — and we document the *non-identities* that classical intuition
+  suggests but approximation breaks (Section 4.5).
+- **A three-layer architecture.** Application policy (SQL `ORDER BY`,
+  `LIMIT`) is separated from the logical algebra (substrate contract)
+  and the physical algebra (engine implementation). The substrate
+  exposes per-column distances; fusion is the application's job.
+- **A sketch of the optimizer.** A Volcano/Cascades-style RBO that uses
+  the equational theory to generate equivalent logical plans, and a
+  CBO that picks physical realizations under a cost model that
+  explicitly accounts for approximation (Sections 6–7).
+- **A prototype and evaluation plan.** A sketch of an open-source
+  reference implementation, with synthetic and real-workload
+  evaluation designed to surface the qualitative differences from
+  multi-path recall (Sections 8–9).
+
+The paper is intentionally foundational. We are not claiming the final
+word on agentic memory stores; we are claiming that the field will
+benefit from a shared algebraic vocabulary, just as it has in the
+relational world.
+
+---
+
+## 2. Background
+
+### 2.1 Relational algebra and the classical optimizer
+
+The relational model [Codd, 1970] and the relational algebra that
+instantiates it remain the dominant formal substrate for declarative
+query languages. Codd showed that a small set of operators — selection
+`σ`, projection `π`, Cartesian product, union, set difference, and
+rename — is sufficient to express any first-order query. Subsequent
+work refined the operator set (adding explicit `⋈` for theta-join,
+grouping/aggregation, ordering, and limits) and crystallized in SQL.
+
+The second foundational pillar is **query optimization**. Selinger's
+1979 cost-based optimizer for System R [Selinger et al., 1979]
+established the template that nearly every commercial RDBMS still
+follows: enumerate alternative orderings and access paths, estimate
+cost under a cardinality model, pick the cheapest. The **Volcano
+extensible query evaluation framework** [Graefe, 1994] and later
+**Cascades** [Graefe, 1995] generalized this to a *rule-based* outer
+loop driving a *cost-based* inner search, in which equivalence rules
+over logical operators are first-class objects, and the optimizer is
+itself extensible by adding rules. The insight of Cascades is that the
+algebra is the API: a new operator is shipped with its equivalence
+rules and cost model, and the optimizer gains new capabilities
+without any central rewrite.
+
+Two ideas from this tradition are central to our work. First, an
+*equational theory* — identities over plans — is the necessary
+foundation for principled rewriting. Second, *logical–physical
+separation* is what allows physical innovations (new access methods,
+new join algorithms) to be plugged in without changing semantics.
+
+### 2.2 Vector search and modern IR
+
+The retrieval stack has evolved along a parallel track. Information
+retrieval developed the *vector space model* [Salton, Wong & Yang,
+1975] and BM25 [Robertson, Walker & Jones, 1995] as principled
+relevance scoring functions. The neural era added dense *embeddings*
+trained for semantic similarity [Mikolov et al., 2013; Reimers &
+Gurevych, 2019], and approximate nearest neighbour (ANN) indexes
+make these practical at scale. HNSW [Malkov & Yashunin, 2018]
+is the dominant *graph-based* ANN structure today, providing
+sub-linear search with controllable recall via `ef` and `M`
+parameters; IVF [Jégou et al., 2011] is the dominant
+*inverted-file* ANN structure, controlled by `nlist` and
+`nprobe`; and brute-force linear scan is the always-available
+exact baseline.
+
+A crucial property of graph-based and inverted-file ANN indexes
+— but not of the linear scan — is that they are *approximate*.
+The result of an HNSW or IVF range query is not the exact set
+of points within distance `τ`; it is an approximation that
+misses some true neighbours (false negatives) and may return
+some non-neighbours (false positives, depending on the
+strategy's parameters and the distance threshold). This
+approximation is invisible at the level of the algebraic
+query language: the user wrote `σ_{‖V−q‖<τ}(R)` and presumably
+wants the *logical* answer. It is, however, central to the
+cost model: a high-recall ANN plan costs more than a
+low-recall one, and the optimizer must be able to *trade off*
+recall against latency — or fall back to the exact linear
+scan when no ANN index is available, or when the selectivity
+of the surrounding predicates is so high that ANN probes
+would not pay for themselves.
+
+### 2.3 Hybrid query systems
+
+The last decade has seen a sustained effort to bring vector and
+relational together. Three lines of work are relevant.
+
+The first is **vector-aware RDBMS extensions**, exemplified by
+PostgreSQL's `pgvector`, DuckDB's `vss`, and Oracle's AI Vector
+Search. These add a vector type, an ANN index, and vector distance
+predicates; integration is at the function-call level. The result is
+usable but architecturally shallow: there are no first-class
+identities for vector selection pushdown, no cost model for
+approximation, no principled way to rewrite a hybrid query.
+
+The second is **purpose-built hybrid stores**: Pinecone, Weaviate,
+Qdrant, Milvus, Vespa. These are vector-first, with metadata
+filtering bolted on. Their optimization story is also pragmatic,
+not foundational; metadata filters are pushed through vector
+searches by an internal planner, but the planner's rewrites are
+not exposed as named identities.
+
+The third is **multi-modal query languages**: SQL/MM, SPARQL with
+full-text extensions, CQL (continuous query language), and various
+research prototypes that mix graph, text, and vector. SPARQL in
+particular has a careful algebraic foundation, but its fusion with
+vector predicates is still an open area.
+
+The common pattern: every system mixes the modalities by *fusing
+scores at the application layer*, not by *extending the algebra
+that defines what counts as an answer*.
+
+### 2.4 The gap
+
+What is missing is an *equational* view of multi-modal memory queries
+in which vector distance, BM25 relevance, and graph reachability are
+first-class predicates on a par with `A = c`; in which computed
+values (distances, scores) are first-class attributes; and in which
+the boundary between the application's *fusion policy* and the
+substrate's *evaluation strategy* is explicit and contractually
+enforced. That is the gap MosaicOpt addresses.
+
+---
+
+## 3. The Extended Algebra: Syntax & Semantics
+
+We extend the classical relational algebra with three new kinds of
+construct: a *materialization* operator that lifts computed values
+to first-class attributes, first-class multi-modal predicates
+(vector distance, BM25, graph reachability), and a *graph
+expansion* operator. Bag semantics are used throughout, matching
+SQL and avoiding the row-collapse anomalies of set semantics in
+the presence of duplicate memory units. The logical/physical
+separation is enforced: physical operators are introduced in
+Section 7 and never appear in this section.
+
+### 3.1 Logical/physical separation
+
+Following System R and Cascades, we treat the *logical* algebra as
+the substrate contract — what the user asks for — and the *physical*
+algebra as the engine contract — how it is evaluated. Equivalences
+hold in the logical algebra; physical operators are *implementations*
+of logical operators, and a logical equivalence does not in general
+imply that two physical realizations are interchangeable (Section
+5, N1–N3). This separation is what makes the system *composable*:
+an ANN physical operator (HNSW graph, IVF inverted file, or
+brute-force linear scan) can be added, swapped, or replaced
+without changing the language the user sees.
+
+### 3.2 Operator inventory
+
+A *logical plan* is a term over the following operators. `R`
+denotes a stored base relation. `L`, `M` denote logical plans.
+`φ` denotes a predicate, `e` a materialization expression, `A`
+a set of attribute names, `O` an ordering expression, `K` a
+non-negative integer, `c` a fresh attribute name, `g` a graph
+rule (a labelled-edge pattern), and `d` a non-negative integer
+depth.
+
+| Operator            | Syntax                  | Meaning                                          |
+|---------------------|-------------------------|--------------------------------------------------|
+| Base relation       | `R`                     | The named stored relation.                       |
+| Selection           | `σ_φ(L)`                | Keep rows satisfying `φ`.                        |
+| Projection          | `π_A(L)`                | Keep only attributes in `A`.                     |
+| Materialization     | `μ_{e→c}(L)`            | For each row, compute `e`; bind result to `c`.   |
+| Join                | `L ⋈_ψ M`               | Pair rows with `ψ` true.                         |
+| Union / Inter / Diff| `L ∪ M`, `L ∩ M`, `L−M` | Bag set operations on compatible schemas.        |
+| Rename              | `ρ_{a→b}(L)`            | Rename attribute `a` to `b`.                     |
+| Ordering            | `τ_O(L)`                | Order rows by expression `O` (a sequence).       |
+| Limit               | `Λ_K(L)`                | First `K` rows of an ordered input.              |
+| Graph expansion     | `Γ_{g,d}(L)`            | From `L`'s node-id attribute, traverse rule `g` to depth `d`. |
+
+**Bag semantics.** A relation is a multiset of tuples. All operators
+are multiset-preserving: `σ`, `μ`, `Γ` preserve row multiplicity;
+projection preserves multiplicity; set operations combine
+multiplicities additively for `∪`, by `min` for `∩`, and by
+subtraction (clamped at 0) for `−`. `τ_O` produces a totally
+ordered sequence; `Λ_K` truncates it. Bag semantics was chosen
+because the substrate must be able to express "the same memory
+unit appears N times" (e.g. an episodic trace where the same
+event is recorded with several slightly different timestamps),
+and because it matches the SQL semantics that application code
+already expects.
+
+### 3.3 Predicate forms
+
+A predicate `φ` is a Boolean combination of atoms over the
+attributes of the input plan. The atom forms are:
+
+- **Classical.** `A = c`, `A < c`, `A > c`, `A ∈ S` for constant
+  or set `c`, `S`.
+- **Vector.** `‖V_a − q‖ < τ` where `V_a` is a vector-valued
+  attribute of the input, `q` is a query-time bound parameter
+  (a dense vector), and `τ ≥ 0` is a distance threshold. Equality
+  and other comparison operators are admissible; range (`< τ`) is
+  the most important form.
+- **Text.** `BM25(t, q) > θ` where `t` is a text attribute, `q`
+  a query-time bound string, and `θ` a relevance threshold. We
+  use the Okapi BM25 definition [Robertson, Walker & Jones, 1995]
+  with parameters `(k_1, b)` carried with the predicate.
+- **Graph.** `reachable(u, v)` (boolean) and `edge(u, v, ℓ)`
+  (boolean; `ℓ` is a label or wildcard) for nodes `u, v` in a
+  graph attribute.
+- **Boolean combinations.** `φ ∧ ψ`, `φ ∨ ψ`, `¬φ`, parentheses.
+
+The *query-time bound parameters* (`q`, `τ`, `θ`) are first-class
+values supplied at execution time, distinct from attributes of the
+input. They make predicates safely *late-binding*: the algebra
+expression is the same across query instances, only the bound
+parameters change.
+
+### 3.4 Materialization expressions
+
+A materialization expression `e` is computed per row and bound to a
+fresh attribute name. Forms are:
+
+- **Classical.** `A + B`, `f(A)` for any scalar function `f`.
+- **Vector.** `‖V_a − q‖` — the distance from a vector attribute to
+  a query-time bound vector.
+- **Text.** `BM25(t, q)` — a BM25 score.
+- **Boolean / arithmetic combinations** of the above.
+
+The key property of `μ` is that the *result* of the computation
+becomes a first-class attribute of the output. Once materialized, the
+value is referenceable by downstream `σ`, by `π`, by `ORDER BY`
+expressions in `τ`, and by other `μ` expressions. This is what
+makes the substrate able to expose per-column distances to
+application-level `ORDER BY` without losing them.
+
+**Fresh-name condition.** The new attribute name `c` in
+`μ_{e→c}(L)` must not already appear in the schema of `L`. This is
+a hygiene condition, not a semantic restriction; `ρ` is provided
+to free names if needed.
+
+### 3.5 Materialization: motivation and semantics
+
+A naïve way to expose per-column distances to the application is to
+*inline* them in `ORDER BY` expressions: `ORDER BY
+‖V_a−q_a‖ + ‖V_b−q_b‖`. This is syntactically permitted by SQL
+extensions, but it forces the application to write the distance
+expression everywhere it is used, and it leaves the optimizer no
+room to share computation between, say, a `WHERE` filter and an
+`ORDER BY` rank.
+
+`μ` resolves this. The pattern
+
+```
+μ_{‖V_a−q_a‖→d_a}  μ_{‖V_b−q_b‖→d_b}  σ_{d_a < τ_a ∧ d_b < τ_b}  τ_{d_a + d_b}  Λ_K
+```
+
+says: "compute the distance to query `a` and to query `b`; keep rows
+where both are below their respective thresholds; sort by sum of
+distances; return the top K." The fusion policy `d_a + d_b` is
+expressed once, in the `τ` expression. The optimizer can rewrite
+this plan — for example, by using M1 to commute the selection
+through the materializations, computing each distance only on
+surviving rows (Section 6).
+
+Formally, the semantics of `μ_{e→c}(L)` is the multiset
+`{ r ⊕ {c ↦ e(r)} : r ∈ L }`, where `⊕` extends the tuple
+with the binding of the fresh attribute `c` to the value of `e`
+on `r`. If `e(r)` is undefined (e.g. distance to a null vector),
+the row is dropped. This is a minor departure from pure relational
+algebra, but it is consistent with SQL's `NULL` handling and is
+essential for safety in the presence of missing embeddings.
+
+### 3.6 Graph expansion
+
+`Γ_{g,d}(L)` takes a plan whose rows contain a node-id attribute
+(`u`, say) and a graph attribute, applies graph rule `g` up to
+depth `d`, and returns the *target* nodes of those traversals
+(joined with the originating row). The depth is inclusive of
+intermediate hops. `g` is a labelled-edge pattern: a regular
+expression over edge labels, evaluated against the graph. The
+graph itself is supplied as a relation-valued attribute; the
+expansion is a join between `L` and the traversal result.
+
+`Γ` is intentionally narrow. We do not attempt to encode path
+queries as selection predicates; this keeps the operator set
+small and the rewrite theory tractable (Section 4, G1). Path
+information can be recovered by a `μ` that records the path
+taken.
+
+### 3.7 Example queries
+
+We illustrate the algebra on a running example. Let `Mem` be a
+relation of memory units with schema
+
+```
+Mem(id: int, text: string, ts: timestamp,
+    emb: vector, emb_alt: vector,
+    user: string, subsystem: string)
+```
+
+Let `KG` be a graph relation
+
+```
+KG(src: int, dst: int, label: string)
+```
+
+holding derivation links between memory units. The query "find
+semantically similar passages in the fault-tolerance subsystem
+from the last 30 days, ranked by a weighted sum of two distance
+metrics, top 10":
+
+```
+Q1 = Mem
+Q2 = σ_{subsystem = 'fault-tolerance' ∧ ts > now() − 30d}(Q1)
+Q3 = μ_{‖emb − q1‖ → d1}  μ_{‖emb_alt − q2‖ → d2}(Q2)
+Q4 = σ_{d1 < τ1 ∧ d2 < τ2}(Q3)
+Q5 = τ_{0.7·d1 + 0.3·d2}(Q4)
+Q6 = Λ_{10}(Q5)
+```
+
+The fusion policy `0.7·d1 + 0.3·d2` is application code; the
+substrate has no opinion on the weights. The thresholds `τ1, τ2`
+are application choices too. The algebra's job is to make this
+expression *rewriteable* — for example, to compute `d1` and `d2`
+only on the post-selection rows, and to enable `topK` early
+termination.
+
+A graph-aware variant — "the same, but only memories linked by a
+`derived_from` chain to a known incident memory" — is
+
+```
+R1 = σ_{id = 42}(Mem)                    -- the seed incident
+R2 = Γ_{label='derived_from', d=2}(R1)   -- two hops downstream
+R3 = σ_{id ∈ π_{dst}(R2)}(Q2)            -- intersect with subsystem filter
+... continue as before ...
+```
+
+The graph expansion is composable: `Γ` produces a relation that
+can be `σ`-, `π`-, and `μ`-ed like any other.
+
+---
+
+## 4. Equational Theory: Identities and Non-Identities
+
+The optimizer (Section 6) is driven by an *equational theory*: a
+set of identities over logical plans. The same theory also
+records, explicitly, the identities that classical intuition
+suggests but approximation breaks — the *non-identities* — so
+the optimizer knows not to apply them. This section unifies both
+sides. We first give an overview (4.1), then the inherited
+classical axioms (4.2), then the new identities that the extended
+operators license (4.3), then the derived rewrites the optimizer
+uses (4.4), and finally the non-identities with counterexamples
+(4.5).
+
+### 4.1 Overview
+
+The equational theory of the extended algebra plays two
+complementary roles. **First**, it is the foundation for the
+rule-based optimizer (Section 6): every rewrite the RBO performs
+is justified by an identity — M1, V1, J1, T1, G1, or a derived
+combination — so the optimizer's behaviour is auditable, not
+opaque. **Second**, the *non*-identities (N1–N3) are the
+discipline that prevents the optimizer from applying rewrites
+that hold in classical relational algebra but break under
+approximation, asymmetric physical costs, or distributed
+semantics. The cost model (Section 7) is responsible for the
+physical cost of every rewrite; the equational theory is
+responsible for its *correctness*.
+
+Concretely, an identity is an equation of the form `LHS = RHS`
+between two logical plans that hold for all instances of the
+free variables (relation names, attribute names, query-time
+bound parameters). A non-identity is a pair of plans that classical
+intuition might equate but the extended setting does not, with an
+explicit counterexample. Both are first-class objects: the RBO
+loads them as data, the cost model consults them when computing
+the "cost of identity application" term, and the executor relies
+on them for safety of adaptive re-planning (Section 7.4).
+
+The structure of this section follows the algebra's structure:
+inherited axioms (the ones we use but do not re-prove) in 4.2;
+new identities (the ones the extended operators license) in 4.3;
+derived rules (combinations used directly by the optimizer) in
+4.4; and non-identities (counterexamples that bound the
+optimization horizon) in 4.5.
+
+### 4.2 Inherited foundational axioms
+
+The following identities are standard and are assumed without
+re-proof. We list them because they interact with the new
+identities in Section 6.
+
+- **(A1) Selection composition.** `σ_φ σ_ψ(L) = σ_{φ ∧ ψ}(L)`.
+- **(A2) Selection distributes over union.**
+  `σ_φ(L ∪ M) = σ_φ(L) ∪ σ_φ(M)`.
+- **(A3) Projection idempotence.**
+  `π_A π_B(L) = π_A(L)` if `A ⊇ B`.
+- **(A4) Selection–join pushdown.** If every attribute mentioned
+  in `φ` is in the schema of `L`, then
+  `σ_φ(L ⋈_ψ M) = σ_φ(L) ⋈_ψ M`.
+- **(A5) Projection–join pushdown.** If `A` contains all
+  attributes of `L` and all attributes referenced by `ψ` in
+  `M`, then `π_A(L ⋈_ψ M) = π_A(L) ⋈_ψ π_{A∩attr(M)}(M)`.
+- **(A6) Rename is involutive on attribute names.**
+  `ρ_{b→a}(ρ_{a→b}(L)) = L`.
+
+These hold for any predicate `φ` in our extended form (classical,
+vector, text, graph), provided the attribute references are
+respected. We do not claim any *new* identities here; we merely
+note that the extended predicates do not violate them.
+
+### 4.3 New foundational axioms
+
+We introduce the seven identities that the extended algebra makes
+possible. Each is stated in a form that names the conditions for
+its applicability.
+
+**M1. Selection commutes with materialization on the materialized
+column.** Where `c` is a fresh attribute name and `e` is an
+expression depending only on attributes of `L`:
+
+$$
+\sigma_{c < \tau}\, \mu_{e \to c}(L) \;=\; \mu_{e \to c}\, \sigma_{e < \tau}(L).
+$$
+
+*Intuition.* A row in `L` survives the LHS only if the
+materialized value of `e` on that row is below `τ`. The RHS
+applies the equivalent filter `e < τ` to the underlying attribute
+*before* materialization. Both produce the same multiset of
+extended rows.
+
+*Proof sketch.* Fix `r ∈ L`. LHS computes `e(r)`, attaches it as
+`c`, and retains `r ⊕ {c ↦ e(r)}` iff `e(r) < τ`. RHS evaluates
+`e(r) < τ` directly: if false, `r` is dropped; if true, the row is
+extended to `r ⊕ {c ↦ e(r)}` by the `μ`. The two multisets are
+equal row-by-row. The freshness of `c` ensures that the predicate
+`c < τ` in LHS is unambiguous — `c` is defined by the `μ` and is
+not shadowed by any pre-existing attribute. ∎
+
+**M2. Materialization is commutative.** For fresh names `c_1, c_2`
+and expressions `e_1, e_2` depending only on `L`'s attributes (and
+not on each other's outputs):
+
+$$
+\mu_{e_1 \to c_1}\, \mu_{e_2 \to c_2}(L) \;=\; \mu_{e_2 \to c_2}\, \mu_{e_1 \to c_1}(L).
+$$
+
+*Intuition.* The two expressions are independent functions of
+`L`'s attributes; the order in which we compute and bind them
+does not affect the final set of `(c_1, c_2)` pairs.
+
+*Proof sketch.* For each `r ∈ L`, LHS computes `e_1(r)` and then
+`e_2(r)`, attaching both; RHS computes `e_2(r)` and then
+`e_1(r)`. Because `e_1` and `e_2` depend only on `r` and not on
+each other's intermediate result, the two sequences yield the same
+extension `r ⊕ {c_1 ↦ e_1(r), c_2 ↦ e_2(r)}`. The multisets are
+equal. ∎
+
+**M3. Materialization through projection.** For fresh `c` and
+expression `e` depending only on attributes in `A`:
+
+$$
+\mu_{e \to c}\, \pi_A(L) \;=\; \pi_{A \cup \{c\}}\, \mu_{e \to c}(L).
+$$
+
+*Intuition.* The LHS first throws away attributes not in `A`,
+then computes `e` on what remains. The RHS computes `e` on all
+of `L` and then projects down to `A ∪ {c}`. If `e` is a function
+of attributes in `A` only, the two multisets are equal.
+
+*Proof sketch.* For `r ∈ L`, the LHS produces
+`π_A(r) ⊕ {c ↦ e(π_A(r))}`. The RHS produces
+`r ⊕ {c ↦ e(r)}` (using the same `e` since `e` depends only on
+`A`), then projects to `(A ∪ {c})`. By the support of `e`,
+`e(r) = e(π_A(r))`, and the resulting tuples agree. The
+freshness of `c` ensures the projection is well-formed. ∎
+
+**V1. Vector selections on distinct columns commute.** For
+distinct vector-valued attributes `V_a, V_b` and corresponding
+bound parameters and thresholds:
+
+$$
+\sigma_{\|V_a - q_a\| < \tau_a}\, \sigma_{\|V_b - q_b\| < \tau_b}(L)
+\;=\;
+\sigma_{\|V_b - q_b\| < \tau_b}\, \sigma_{\|V_a - q_a\| < \tau_a}(L).
+$$
+
+*Intuition.* Each selection is a function only of its own vector
+column. Their composition is the intersection of the two
+predicates, which is symmetric in the columns.
+
+*Proof sketch.* The composite predicate is `(‖V_a − q_a‖ < τ_a)
+∧ (‖V_b − q_b‖ < τ_b)`, which is equivalent to
+`(‖V_b − q_b‖ < τ_b) ∧ (‖V_a − q_a‖ < τ_a)`. By A1, the
+selection-composition identity, the two orderings collapse to the
+same composite selection. ∎
+
+*Note.* V1 is a *correctness* identity: the two plans produce the
+same logical result. They are not interchangeable in *cost*: the
+order in which the two vector selections are evaluated affects
+how many candidate rows each ANN probe returns, the cumulative
+ANN work, and the intermediate result-set sizes. The optimizer
+must keep both orderings in the plan space and let the cost model
+choose (Section 7).
+
+**J1. Vector selection pushdown through join.** Where `V_a` is
+an attribute of `L` and `ψ` is the join predicate:
+
+$$
+\sigma_{\|V_a - q\| < \tau}\, (L \bowtie_\psi M)
+\;=\;
+(\sigma_{\|V_a - q\| < \tau}(L)) \bowtie_\psi M.
+$$
+
+*Intuition.* A4 (selection–join pushdown) applies to vector
+predicates without modification, because the predicate references
+only `L`'s attributes.
+
+*Proof sketch.* Direct instantiation of A4 with the vector
+predicate as `φ`. The result is the same multiset because
+`‖V_a(r) − q‖ < τ` is independent of any attribute of `M`. ∎
+
+**T1. Limit after order equals top-K.** Where `O` is a total
+ordering expression:
+
+$$
+\tau_O\, \Lambda_K(L) \;=\; \text{topK}_O(L, K).
+$$
+
+*Intuition.* The composition "order by `O`, take first `K`" is
+exactly the definition of "return the `K` smallest rows under
+`O`". The right-hand side is a single physical operator (`topK`)
+that can short-circuit as soon as `K` rows are known.
+
+*Proof sketch.* By definition, `τ_O(L)` produces the rows of
+`L` in non-decreasing order of `O` (with stable tie-breaking
+on remaining columns); `Λ_K` then takes the first `K`. The
+result is precisely the `K` smallest rows under `O`. The two
+plans are logically equal. The interesting observation is
+*physical*: the LHS in the algebra may be implemented as
+`Sort` followed by `Limit`; the RHS as `TopKHeap` with
+incremental bounds. They are equivalent in result but very
+different in cost. ∎
+
+**G1. Selection pushdown through graph expansion.** Where `φ`
+references only attributes of `L` (and not attributes of the
+graph rule's traversal result):
+
+$$
+\sigma_\phi\, \Gamma_{g, d}(L) \;=\; \Gamma_{g, d}\, \sigma_\phi(L).
+$$
+
+*Intuition.* Filtering the seeds before traversal produces the
+same target set as filtering the traversal result, because the
+traversal is monotone in the seed set (more seeds ⊇ more
+traversed targets). The cost, however, is dramatically
+different: filtering first prunes the seed set, often by
+orders of magnitude, before the expensive graph walk.
+
+*Proof sketch.* Let `R` be the set of rows of `L` satisfying
+`φ`; the seed set of LHS is `L`, of RHS is `R`. Let
+`reach(g, d, S)` denote the set of nodes reachable from a
+seed set `S` by rule `g` within depth `d`. Monotonicity of
+reachability gives `reach(g, d, R) ⊆ reach(g, d, L)`. The
+`σ_φ` on the LHS then removes any row whose origin row is
+not in `R` (since `φ` depends only on the origin's
+attributes), so the two multisets agree. ∎
+
+### 4.4 Derived identities
+
+By composing the identities, additional rewrites become
+available. We name two that the optimizer uses directly:
+
+- **J1+M1 (vector selection before materialization).** Combining
+  J1 and M1 allows a join-side vector selection to be pushed
+  below a materialization that binds a distance for sorting:
+  ```
+  σ_{‖V−q‖<τ}  μ_{‖V−q‖→d}  (L ⋈ M)
+  = μ_{‖V−q‖→d}  σ_{‖V−q‖<τ}  (L ⋈ M)        (M1)
+  = μ_{‖V−q‖→d}  (σ_{‖V−q‖<τ}(L) ⋈ M)        (J1)
+  ```
+  The plan now computes the distance only on the surviving
+  `L` rows.
+- **T1 (topK replaces τ + Λ).** Whenever the algebra has
+  `τ_O Λ_K`, the CBO can replace the pair with a single
+  `topK` physical operator (Section 7).
+
+The algebra is closed under composition: the output of any
+operator is a logical plan usable as input to any other. The
+schema rules ensure that the attributes a downstream operator
+references are either attributes of the input or have been
+introduced by a `μ` in the pipeline. The rewrite rules
+documented in 4.2–4.4 — together with the standard axioms A1–A6
+— therefore suffice to cover the optimization of all plans whose
+operators draw from the inventory of Section 3.
+
+### 4.5 Non-identities and counterexamples
+
+Some rules that look natural in a relational setting **do not
+hold** in the extended algebra, and a third class — physical
+identities — holds in the logical algebra but not in the
+physical algebra. We document these explicitly so the optimizer
+knows not to apply them. The same logical plan in two
+realizations can have different outputs; the optimizer must
+treat this as a *cost* phenomenon, not a *correctness*
+phenomenon.
+
+#### 4.5.1 N1: Approximation breaks logical equivalence
+
+> **Claim.** Logical `σ_{‖V−q‖<τ}(R)` is exactly defined. Physical
+> `H_{V, q, τ}(R)` is *approximate* — it is missing some true
+> neighbours and (depending on `ef`) may include some
+> non-neighbours. A logical equivalence does not imply that two
+> physical realizations preserve it.
+
+**Counterexample.** Let `R` consist of a single row `r = (id: 1,
+emb: v)` with `‖v − q‖ = 0.99τ` (just under the threshold). An
+ANN index on `emb` may miss `r` under tight approximation
+parameters: an HNSW with small `ef` and an unfavourable
+entry point, an IVF with a coarse `nprobe`, or even a
+brute-force scan that aborts early on a bounded buffer. A
+fully unconstrained linear scan over `R` returns `{r}`.
+All of these are valid physical implementations of the same
+logical selection, and the identity that the result of
+`H_{V,q,τ}` equals the exact set of points within distance
+`τ` does not hold under approximation.
+
+**Implication.** The optimizer must not assume that two
+implementations of a logical operator agree on output; it must
+model approximation as a first-class *cost dimension* with
+quantified recall/precision, and it must let the cost-based
+search explore the trade-off (Section 7).
+
+#### 4.5.2 N2: Similarity join asymmetry
+
+> **Claim.** Logically, `R ⋈_{‖V_a−V_b‖<τ} S = S
+> ⋈_{‖V_b−V_a‖<τ} R`. Physically, the two sides are not
+> interchangeable in cost.
+
+**Counterexample.** Let `|R| = 10^6` with an ANN index on
+`V_a` (HNSW, IVF, or both), and `|S| = 10^3` with no index.
+The plan "ANN on `R` probed by each row of `S`" issues
+`10^3` ANN probes, each touching a small portion of the
+index structure. The reverse plan "ANN on `S` probed by
+each row of `R`" would require either building an ANN
+index on `S` (extra cost) or issuing `10^6` probes. The
+two logical plans are equivalent; the physical plans have
+different costs by three orders of magnitude.
+
+**Implication.** The cost model must encode which side of a
+join has the index and which has the probes. The RBO can
+generate *both* the LHS and RHS join orderings; only the CBO
+can decide which is cheaper.
+
+#### 4.5.3 N3: Limit and order do not distribute over union
+
+> **Claim.** `Λ_K τ_O (R ∪ S) ≠ Λ_K (τ_O(R)) ∪ Λ_K (τ_O(S))`
+> in general.
+
+**Counterexample.** Let `R` contain 100 rows each with score
+`0`, and `S` contain 100 rows each with score `10`. Let `K = 5`
+and `O` be the score attribute. The LHS, `Λ_5 τ_O(R ∪ S)`,
+returns the 5 rows from `S` (the top 5 of the union by
+score). The RHS, `Λ_5 τ_O(R) ∪ Λ_5 τ_O(S)`, returns the 5
+rows from `R` (all score 0) *plus* the 5 rows from `S` (all
+score 10), giving a 10-row result. The two multisets differ.
+
+**Implication.** The identity `Λ_K τ_O(L ∪ M) = Λ_K τ_O(L) ∪
+Λ_K τ_O(M)`, which would be convenient for distributed
+execution, does not hold. The optimizer must compute the union
+before applying the limit. This is a strong argument for
+keeping the *logical* plan compact and letting the *physical*
+planner manage the distributed execution (Section 7).
+
+A related non-identity: `τ_O(L ∪ M) = τ_O(L) ∪ τ_O(M)` is
+formal only when the union of two ordered sequences is itself
+a well-defined sequence — i.e. when the user accepts that
+"ordered union" of two ordered bags is the interleave, not the
+re-sort. In practice, `τ` is almost always paired with `Λ`,
+and T1 already subsumes the case.
+
+### 4.6 Convergent rewriting
+
+The equational theory of 4.2–4.5 can be oriented into a
+**rewriting system** and analyzed for termination and
+confluence. This subsection presents the rewriting system,
+exhibits a well-founded order that witnesses termination,
+enumerates the critical pairs that arise from overlapping
+redexes, and concludes by Newman's lemma that the RBO is
+confluent.
+
+**Orienting the identities.** Each identity in 4.3 is oriented
+in the direction that moves a plan "toward" the optimized
+form (i.e. the form on which the cost model of Section 7
+prefers to spend its work). Concretely:
+
+| Identity  | LHS                                | RHS                                | Direction |
+|-----------|------------------------------------|------------------------------------|-----------|
+| M1        | `σ_{c<τ} μ_{e→c}(L)`               | `μ_{e→c} σ_{e<τ}(L)`               | LHS → RHS |
+| M2        | `μ_{e1→c1} μ_{e2→c2}(L)`           | `μ_{e2→c2} μ_{e1→c1}(L)`           | LHS → RHS |
+| M3        | `μ_{e→c} π_A(L)`                   | `π_{A∪{c}} μ_{e→c}(L)`             | LHS → RHS |
+| J1        | `σ_{‖V−q‖<τ}(L ⋈_ψ M)`            | `σ_{‖V−q‖<τ}(L) ⋈_ψ M`            | LHS → RHS |
+| T1        | `τ_O Λ_K(L)`                       | `topK_O(L, K)`                     | LHS → RHS |
+| G1        | `σ_φ Γ_{g,d}(L)`                   | `Γ_{g,d} σ_φ(L)`                   | LHS → RHS |
+| V1        | `σ_a σ_b(L)`                       | `σ_b σ_a(L)`                       | bidirectional |
+| A1        | `σ_φ σ_ψ(L)`                       | `σ_{φ∧ψ}(L)`                       | LHS → RHS |
+| A4        | `σ_φ(L ⋈_ψ M)`                     | `σ_φ(L) ⋈_ψ M`                     | LHS → RHS |
+
+The orientated rules form an **abstract rewriting system**
+(ARS) on the set of logical plans. We denote it by
+`→_{RBO}` and its reflexive-transitive closure by
+`→^*_{RBO}`. The optimizer (Section 6) is precisely an
+interpreter for `→_{RBO}`: each rule fires when its LHS
+pattern matches a redex in the current plan.
+
+**Termination.** We exhibit an interpretation
+`w: Plans → ℕ` that strictly decreases under every rewrite
+rule. The natural choice is
+
+$$
+w(P) \;=\; \alpha \cdot s(P) \;+\; \beta \cdot r(P) \;+\; \gamma \cdot p(P),
+$$
+
+where
+
+- `s(P)` is the number of `σ` operations in `P` that
+  reference a `μ`-bound attribute (a "blocking selection"
+  that can be pushed below its `μ` by M1);
+- `r(P)` is the number of "redundant materializations" in
+  `P`, i.e. `μ` operations whose result attribute is
+  neither used in a downstream `σ`, in a `τ` ordering
+  expression, nor in another `μ`;
+- `p(P)` is the number of `π` operations that drop
+  attributes needed by a downstream `μ` or `σ` (which M3
+  can rewrite to retain those attributes);
+- `α, β, γ ≥ 1` are constants chosen to make every
+  rewrite's left-hand side strictly larger than its
+  right-hand side.
+
+For every oriented rule in the table above, the LHS
+contributes at least one unit to one of `s, r, p` that the
+RHS eliminates or reduces, and the RHS preserves or
+decreases the other terms. The bound
+
+$$
+w(P) \;\le\; \alpha \cdot |P| \;+\; \beta \cdot |P| \;+\; \gamma \cdot |P|,
+$$
+
+combined with the strict decrease of `w` under every
+rewrite, yields termination: the ARS has no infinite
+rewrite sequences.
+
+**Local confluence.** Two rewrites can apply to the same
+plan in different ways when their redexes overlap. We
+enumerate the critical pairs.
+
+1. **M1 ∩ M1 (overlapping `μ` chains).** Apply M1 to two
+   adjacent blocking selections in a chain
+   `σ_{c1<τ1} σ_{c2<τ2} μ_{e2→c2} μ_{e1→c1}(L)`. The
+   two ways (push `c1` first vs. push `c2` first) yield
+   `μ_{e2→c2} μ_{e1→c1} σ_{e2<τ2} σ_{e1<τ1}(L)` and
+   `μ_{e2→c2} μ_{e1→c1} σ_{e1<τ1} σ_{e2<τ2}(L)`.
+   These two reducts are joined by A1 (selection
+   composition, then reordering): the `σ`s collapse to
+   `σ_{e1<τ1 ∧ e2<τ2}`, and the `μ`s collapse to the
+   same chain order by M2. Joinable.
+
+2. **M1 ∩ J1 (selection on `L ⋈ M`).** A selection
+   `σ_{‖V_a−q‖<τ}` sits above a join. M1 rewrites it
+   into a `μ_{‖V_a−q‖→c} σ_{c<τ}`; J1 pushes the
+   `σ` below the join. The two paths reach
+   `μ_{‖V_a−q‖→c} (σ_{‖V_a−q‖<τ}(L) ⋈_ψ M)`. Joinable
+   (M1 fires twice, then J1).
+
+3. **G1 ∩ A4 (selection above `Γ`, on an attribute
+   shared with the seed).** A `σ_φ` above a `Γ_{g,d}`
+   can be pushed below by G1, or split by A4 if `φ`
+   references both the seed and the result. G1
+   dominates when `φ` references only the seed
+   attribute; the cost model (Section 7) prefers G1.
+   The two reducts agree on the resulting row set by
+   the monotonicity argument of the G1 proof (4.3).
+   Joinable.
+
+4. **M2 ∩ V1 (commuting materializations vs. commuting
+   selections).** `μ_{e1→c1} μ_{e2→c2} σ_a σ_b(L)`
+   admits both a M2 (swap `μ`s) and a V1 (swap `σ`s).
+   All four orderings are joined by the confluent
+   closure of M2, V1, and A1. Joinable.
+
+5. **T1 ∩ M1 (topK after a materialization-above-
+   selection).** A pattern
+   `τ_{0.7·d1+0.3·d2} Λ_{10} σ_{d1<τ1} μ_{‖emb−q‖→d1}(L)`
+   is a topK in the LHS position (T1 fires), or M1
+   fires first to push the `σ` below the `μ`, then
+   T1 fires. Both reach
+   `topK_{0.7·d1+0.3·d2}(μ_{‖emb−q‖→d1} σ_{‖emb−q‖<τ1}(L), 10)`.
+   Joinable.
+
+In every critical pair, the two reducts can be further
+rewritten to a common plan using the rules of 4.2–4.4.
+This is local confluence.
+
+**Newman's lemma.** Newman's lemma [Newman, 1942] states
+that for an ARS, **termination + local confluence ⟹
+(confluence + unique normal form)**. By the termination
+argument and the critical-pair analysis above, we have
+both. Hence:
+
+> **Theorem 4.2 (RBO Confluence).** *For any starting
+> logical plan `P` and any two sequences of RBO rewrites
+> `P →^*_{RBO} P*` and `P →^*_{RBO} P**`, there exists
+> a plan `P∞` such that `P* →^*_{RBO} P∞` and
+> `P** →^*_{RBO} P∞`. Moreover, the normal form `P∞` is
+> unique: it depends only on `P`, not on the order in
+> which rewrites are applied.*
+
+*Proof.* Termination holds by the weight function `w`
+above. Local confluence holds by the critical-pair
+analysis. The conclusion follows by Newman's lemma. ∎
+
+**Significance.** Theorem 4.2 is the formal
+correctness guarantee of the RBO. Two different
+optimization paths reach the same optimized plan,
+independent of the order in which rules fire. This is a
+property that heuristic, hand-tuned optimizers (e.g. the
+multi-path recall orchestrators of Section 1) cannot
+provide. It is also a property that the CBO inherits
+"for free": the CBO's search is over the unique
+canonical form produced by the RBO, so the CBO's choice
+of physical realization is well-defined and reproducible.
+
+The practical consequence is that the RBO can be
+implemented as a simple greedy loop (apply any rule
+that decreases `w` and matches a redex) without losing
+correctness — the order of rule application does not
+affect the final logical plan. This simplifies the
+optimizer implementation considerably and is a key
+reason for choosing a rule-based architecture over a
+purely cost-driven search (Section 6).
+
+---
+
+## 5. SQL Surface
+
+The algebra of Section 3 is the *optimizer's* working language;
+it is not what application code writes. Application code writes
+SQL, in a small extension that is the locked-in query interface
+for the prototype. This section makes the two surfaces
+explicit, gives the desugaring from SQL into the algebra, and
+justifies the design decisions. The design itself is documented
+in `notes/decisions/2026-07-24-sql-extension.md`; this section
+is the paper-facing treatment.
+
+### 5.1 Motivation: two equivalent surfaces
+
+The substrate contract is the logical algebra (Sections 3–4).
+But application code, by convention, by tooling, and by the
+decades of investment in SQL-based ORMs and dashboards, is
+expressed in SQL. The right architecture is therefore a *thin
+SQL surface* that desugars into the algebra, and a *round-trip*
+property: every SQL query expresses a plan in the algebra, and
+every plan in the algebra has a SQL rendering. The optimizer
+manipulates the algebra; the parser is the only component that
+sees SQL. From the application's point of view, the SQL is
+the *primary* surface and the algebra is an internal
+intermediate representation; from the optimizer's point of
+view, the algebra is the primary surface and SQL is a
+*projection* of it. The two viewpoints are not in tension
+because the desugaring is total, deterministic, and
+semantics-preserving.
+
+The remainder of this section justifies the four
+SQL-surface design choices the prototype has locked in
+(5.8), then walks through the desugaring rules (5.6) and a
+worked example (5.7).
+
+### 5.2 DDL: vector type and indexes
+
+The SQL surface adds one *type* and two *index* DDL clauses.
+We deliberately do not introduce a new tablespace, a new
+"collection" concept, or a separate vector store relation
+— vectors are first-class column types, and indexes are
+declared on the same relation that holds the data.
+
+```sql
+-- Vector column with optional explicit metric
+ALTER TABLE memory
+    ADD COLUMN emb VECTOR(768);
+ALTER TABLE memory
+    ADD COLUMN emb_alt VECTOR(768, METRIC := 'cosine');
+
+-- ANN index on a vector column (one of: hnsw, ivf, scan)
+CREATE INDEX idx_emb_hnsw
+    ON memory USING hnsw (emb vector_cosine_ops);
+CREATE INDEX idx_emb_ivf
+    ON memory USING ivf (emb vector_cosine_ops)
+        WITH (nlist = 1024);
+-- A "scan" index is implicit: no DDL is required for the
+-- brute-force linear-scan realisation; it is always available.
+
+-- BM25 inverted index on a text column
+CREATE INDEX idx_text_bm25
+    ON memory USING bm25 (text);
+```
+
+The `VECTOR(N)` type is a typed array of N 32-bit floats; the
+optional `METRIC := '...'` clause names the distance metric
+(`'cosine'`, `'l2'`, `'ip'`) and is used by the CBO to
+*prefer* a matching ANN index when one is available. The
+`USING hnsw`, `USING ivf`, and `USING bm25` index methods
+are the physical access paths of Section 7 exposed as DDL;
+the linear-scan realisation of vector selection is always
+available, parameter-free, and serves as the exact baseline
+the approximate strategies trade against. The CBO selects
+per query, from cost and approximation parameters, which
+member of the ANN family (HNSW graph, IVF inverted file, or
+brute-force scan) to invoke. Nothing in the algebra changes;
+the DDL is a *creation* concern, not a *query* concern.
+
+### 5.3 WHERE: multi-modal predicates
+
+The `WHERE` clause of a query is the primary surface for
+multi-modal predicates. We adopt **SQL/MM-style syntax** for
+all three new predicate kinds (vector, text, graph) and
+*keep* pgvector's distance operators for low-level use:
+
+```sql
+-- Vector range predicate (SQL/MM-style, first-class)
+WHERE emb IS NEAR :q1 WITHIN DISTANCE :tau1
+WHERE emb_alt IS NEAR :q2 WITHIN DISTANCE :tau2
+
+-- Text relevance predicate
+WHERE text MATCHES :q1 WITH SCORE > :theta
+
+-- Graph reachability predicate
+WHERE id IS REACHABLE FROM :n WITHIN 2 HOPS VIA 'derived_from'
+
+-- pgvector operators are still available (low-level, escape hatch)
+WHERE emb <=> :q1 < :tau1
+WHERE emb <-> :q1 < :tau1
+WHERE emb <#> :q1 > :tau1
+```
+
+The design rationale for the SQL/MM style is documented and
+is the user's explicit preference: function-style
+(`distance(emb, :q) < :tau`) reads as a *user-defined
+function* — a black box the engine does not understand — and
+so discourages the optimizer from optimizing it. The
+SQL/MM form `IS NEAR ... WITHIN DISTANCE` reads as a
+*first-class* construct that the engine is committed to
+understanding, and gives the parser a place to anchor the
+desugaring rule. The same logic applies to `MATCHES ... WITH
+SCORE` and `IS REACHABLE ... VIA`. We retain pgvector's
+`<=>`, `<->`, `<#>` operators for two reasons: (i) backward
+compatibility with the existing pgvector ecosystem, and
+(ii) they are the most natural surface for an `ORDER BY`
+expression that needs the raw distance (Section 5.4).
+
+### 5.4 Materialization via existing `AS`
+
+The materialization operator `μ` (Section 3.4) is the
+algebra's way to bind a computed value as a first-class
+attribute. The SQL surface does *not* add a new `LET`
+clause; the existing `AS` alias is the materialization
+syntax. The optimizer recognizes when an `AS`-bound value is
+*reused* in `WHERE` and `ORDER BY` and triggers the M1-style
+rewrite (Section 4.3) automatically.
+
+```sql
+SELECT
+    id, text, ts, subsystem,
+    emb <=> :q1     AS d1,    -- materializes distance to :q1
+    emb_alt <=> :q2 AS d2     -- materializes distance to :q2
+FROM memory;
+```
+
+The parser treats `AS d1` as binding a fresh attribute
+`d1` to the per-row expression `emb <=> :q1`; the
+resulting logical plan has the corresponding `μ` operator.
+When the plan is later used in a `WHERE d1 < :tau1`
+predicate or an `ORDER BY 0.7 * d1 + 0.3 * d2` expression,
+the optimizer pushes the `σ` below the `μ` (M1) — unless
+the user opted into eager materialization via the
+`MATERIALIZED` hint:
+
+```sql
+WITH scored AS MATERIALIZED (
+    SELECT id, emb <=> :q1 AS d1, emb_alt <=> :q2 AS d2
+    FROM memory
+)
+SELECT id FROM scored WHERE d1 < :tau1;
+```
+
+The hint is a thin override; the default is for the
+optimizer to decide, and the equational theory of Section
+4 is the formal contract that the optimizer is honouring
+when it pushes a `σ` past a `μ`.
+
+### 5.5 Graph expansion via recursive CTE
+
+Graph traversal is exposed as a standard SQL `WITH
+RECURSIVE` clause — no new syntax. The optimizer handles the
+recursion, and the resulting fixed point is fed into the
+rest of the plan as a normal relation.
+
+```sql
+WITH RECURSIVE reachable AS (
+    SELECT :n AS id, 0 AS depth
+    UNION
+    SELECT edge.dst, reachable.depth + 1
+    FROM edge JOIN reachable ON edge.src = reachable.id
+    WHERE reachable.depth < 2
+)
+SELECT m.*
+FROM memory m
+JOIN reachable r ON m.id = r.id
+WHERE m.subsystem = 'fault-tolerance';
+```
+
+The recursive CTE is the standard SQL construct for
+transitive closure; the optimizer recognizes the
+`edge.src = reachable.id` join as a `Γ`-style expansion and
+emits the corresponding `Γ` operator (Section 3.6). The
+`WHERE reachable.depth < 2` clause is the depth bound. We
+do *not* introduce a new `TRAVERSE` keyword; the recursive
+CTE is a familiar idiom and avoids yet another surface
+construct.
+
+### 5.6 Desugaring rules: SQL → algebra
+
+The desugaring is defined as a recursive function
+`[[·]]_SQL` that maps SQL fragments to algebra terms. The
+function is total on the surface syntax of Section 5.2–5.5
+and is the *only* place where the parser and the algebra
+meet. We state the rules informally; the implementation is
+the recursive-descent parser.
+
+**D1. Projection + filter + order + limit.** For
+
+```sql
+SELECT expr AS c, ...
+FROM L
+WHERE φ
+ORDER BY O
+LIMIT K
+```
+
+the desugaring is
+
+```
+[[·]]_SQL = Λ_K(τ_O(σ_φ(μ_{expr→c}([[L]]_SQL))))
+```
+
+with `μ` chaining for multiple aliased expressions.
+`ORDER BY` is preserved exactly as written — `τ_O` accepts
+both simple `ORDER BY c` and complex `ORDER BY
+0.7*d1 + 0.3*d2`, the latter referencing materialized
+columns.
+
+**D2. Vector predicate.** `[[emb IS NEAR :q WITHIN
+DISTANCE :t]]_pred = σ_{‖emb−q‖<t}`. The bound parameter
+`:q` and the threshold `:t` are the query-time bound
+parameters of Section 3.3. The desugared form is a
+first-class algebra expression, so the optimizer's
+selection-pushdown rules (J1, M1) apply.
+
+**D3. Text predicate.** `[[text MATCHES :q WITH SCORE >
+:θ]]_pred = σ_{BM25(text, q) > θ}`. The `(k_1, b)`
+parameters are carried with the BM25 index (5.2) and
+looked up at planning time. The CBO's inverted-index
+bridge (Section 7.3) applies directly to the desugared
+form.
+
+**D4. Graph predicate.** `[[id IS REACHABLE FROM :n
+WITHIN k HOPS VIA 'l']]_pred = σ_{id ∈ π_{dst}(Γ_{label='l',
+d=k}(σ_{id=:n}(mem)))}`. The inner `σ_{id=:n}(mem)` is the
+seed, the `Γ` is the labelled-edge expansion of Section
+3.6, and the outer `σ` is the membership test. The `σ`
+form composes with J1 and G1 (the desugared form
+participates in the optimizer's rewrite rules).
+
+**D5. Recursive CTE.** A `WITH RECURSIVE name AS body`
+clause is first expanded to its *least fixed point* under
+standard SQL semantics (bag UNION with duplicate
+elimination, depth bound by the user's `depth < k`
+predicate); the resulting relation is then translated by
+D1–D4. Formally, with `F(R) = [[body]]_SQL` the body as a
+function of the recursive name's relation, the desugaring
+is
+
+```
+[[WITH RECURSIVE name AS body SELECT ...]]_SQL
+  = [[SELECT ... FROM lfp(F)]]_SQL
+```
+
+The optimizer recognizes the `lfp` form and emits a `Γ`
+operator with the appropriate depth and label.
+
+For each rule, the desugaring preserves semantics
+*trivially*, by construction: each rule is the definition
+of the corresponding SQL/MM clause in terms of the
+algebra's predicate and operator semantics (Section 3).
+
+### 5.7 Worked example: the Q1→Q6 query in both forms
+
+We illustrate the desugaring on the running example of
+Section 3.7. The full SQL surface is:
+
+```sql
+WITH scored AS MATERIALIZED (
+    SELECT
+        id, text, ts, subsystem,
+        emb <=> :q1     AS d1,
+        emb_alt <=> :q2 AS d2
+    FROM memory
+    WHERE subsystem = 'fault-tolerance'
+      AND ts > now() - interval '30 days'
+)
+SELECT id, text, ts
+FROM scored
+WHERE d1 < :tau1 AND d2 < :tau2
+ORDER BY 0.7 * d1 + 0.3 * d2
+LIMIT 10;
+```
+
+The corresponding algebra (the Q1–Q6 pipeline of
+Section 3.7) is:
+
+```
+Q1 = Mem
+Q2 = σ_{subsystem = 'fault-tolerance' ∧ ts > now() − 30d}(Q1)
+Q3 = μ_{‖emb−q1‖→d1}  μ_{‖emb_alt−q2‖→d2}(Q2)
+Q4 = σ_{d1<τ1 ∧ d2<τ2}(Q3)
+Q5 = τ_{0.7·d1 + 0.3·d2}(Q4)
+Q6 = Λ_{10}(Q5)
+```
+
+The parser desugars the SQL in four steps: (1) the
+`WITH scored AS MATERIALIZED` is recognized as a bound
+sub-query and the inner `SELECT` is desugared to
+`μ_{d1, d2}(σ_{subsystem, ts}(Mem))`; (2) the outer
+`SELECT` becomes `π_{id, text, ts}(...)`; (3) the
+`WHERE` clause becomes `σ_{d1<τ1 ∧ d2<τ2}`; (4) the
+`ORDER BY ... LIMIT 10` is desugared to
+`τ_{0.7·d1+0.3·d2} Λ_{10}` per T1.
+
+The optimizer then applies the rewrite rules of
+Section 4. The most important rewrite is M1: the
+predicate `d1 < τ1` is pushed below the materialization
+that binds `d1`, so `‖emb−q1‖` is computed only on rows
+that pass the `subsystem = 'fault-tolerance'` filter.
+The user wrote the SQL in the order that reads naturally
+("compute d1 and d2, then filter, then order"); the
+optimizer delivers a plan that computes `d1` and `d2`
+only on the survivors. The `MATERIALIZED` hint preserves
+the plan shape (a `μ` is still emitted) but the cost of
+that `μ` is reduced by the pushdown.
+
+### 5.8 Why these design choices
+
+Four choices are locked in for the prototype.
+
+**SQL/MM-style over function-style.** The `IS NEAR`,
+`MATCHES`, and `IS REACHABLE` syntaxes are first-class
+clauses, not function calls. This is a deliberate signal
+to the optimizer (and to readers of the SQL) that the
+engine is committed to understanding the construct and
+can apply its equational theory to it. The
+function-style alternative `distance(emb, :q) < :tau`
+is permitted (and is the form pgvector users are used
+to) but is a *low-level escape hatch*, not the
+recommended surface.
+
+**Existing `AS` over a new `LET`.** Materialization is
+expressed with the SQL `AS` alias; the optimizer
+recognizes when an `AS`-bound value is reused and
+applies M1. This avoids introducing a new clause for a
+concept (`μ`) that already has a SQL analogue (`AS`).
+The optional `WITH [MATERIALIZED]` hint covers the rare
+case where a user wants to force eager materialization.
+
+**Recursive CTE over a new `TRAVERSE` clause.** Graph
+expansion is expressed with `WITH RECURSIVE`, which is
+standard SQL and a familiar idiom for transitive
+closure. The optimizer recognizes the form and emits a
+`Γ` operator; no new keyword is needed.
+
+**Keep pgvector's `<=>`, `<->`, `<#>` operators.** The
+existing pgvector distance operators are preserved for
+backward compatibility and as a low-level surface. The
+SQL/MM predicates are the recommended surface, but
+escape hatches matter for ecosystem fit and for advanced
+users who want to compose raw distances in `ORDER BY`
+expressions.
+
+These four choices, jointly, keep the SQL surface *thin*.
+The only new types are `VECTOR(N)` and the `VECTOR(N,
+METRIC := ...)` variant. The only new clauses are
+`IS NEAR ... WITHIN DISTANCE`, `MATCHES ... WITH SCORE`,
+`IS REACHABLE ... VIA`, and the optional `[MATERIALIZED]`
+hint. Everything else — `SELECT`, `FROM`, `WHERE`, `AS`,
+`ORDER BY`, `LIMIT`, `WITH RECURSIVE`, `JOIN`, `GROUP
+BY`, aggregates — is standard SQL. The design principle
+is the *minimum new surface* that still lets the algebra
+be the substrate contract.
+
+---
+
+## 6. From Algebra to Optimizer: RBO
+
+The rule-based optimizer (RBO) is the first phase of the
+optimizer pipeline. It operates on **logical plans** and
+applies the identities of Section 4 to enumerate equivalent
+plans. The output is a (typically modest) set of logically
+equivalent plans that the CBO will then consider for
+realization.
+
+### 6.1 RBO role
+
+The RBO's job is **not** to pick a plan. Its job is to
+generate a *plan space* in which the CBO can search
+effectively. Concretely, the RBO uses the equational theory
+to:
+
+1. **Apply selection pushdown** (A4, J1, G1) so that
+   selective filters are evaluated early and reduce the
+   input to expensive downstream operators.
+2. **Commute vector and classical selections** (V1, A1) so
+   that the more selective predicate runs first.
+3. **Reorder materializations** (M2) so that independent
+   materializations can be evaluated in any order — this
+   matters when the physical realizations have different
+   costs (one ANN scan, one BM25 scan, for example).
+4. **Expose topK opportunities** (T1) by collapsing
+   `τ_O Λ_K` into a single `topK` operator that the
+   physical planner can implement with a bounded heap.
+
+The RBO does *not* decide which access path (HNSW vs. IVF vs.
+linear scan, B-tree vs. heap) to use. It only reshapes the
+logical plan.
+
+### 6.2 Example transformations
+
+Returning to the Q1–Q6 example of Section 3.7, the input
+logical plan is
+
+```
+Λ_10 τ_{0.7·d1 + 0.3·d2} σ_{d1<τ1 ∧ d2<τ2}
+    μ_{‖emb_alt−q2‖→d2} μ_{‖emb−q1‖→d1}
+    σ_{subsystem='ft' ∧ ts>now()−30d}(Mem).
+```
+
+The RBO applies the following rewrites in order:
+
+1. **Selection composition** (A1):
+   `σ_{d1<τ1 ∧ d2<τ2}` becomes the composition of two
+   `σ`s, one per predicate.
+2. **Selection–materialization commutativity** (M1), per
+   predicate: each `σ_{d1<τ1}` is rewritten to
+   `μ_{…→d1} σ_{‖emb−q1‖<τ1}`.
+3. **Selection–selection pushdown** (A1 again, plus V1
+   for the vector part): the two `σ`s commute, and the
+   one with the lower expected selectivity runs first
+   (a heuristic we encode as a rule with a cost
+   precondition).
+4. **Classical selection pushdown** (A4): the
+   `σ_{subsystem='ft' ∧ ts>now()−30d}` is pushed to the
+   base scan.
+5. **topK fusion** (T1): the trailing
+   `τ_{0.7·d1+0.3·d2} Λ_10` is recognized as a `topK`.
+6. **Materialization commutation** (M2): the two
+   independent `μ`s can be evaluated in either order;
+   the RBO records both plans.
+
+The output is a small set of logical plans, all
+guaranteed to be semantically equivalent, but each with a
+distinct shape (filter order, materialization order,
+topK vs. sort+limit). The CBO then chooses among them.
+
+### 6.3 Plan space pruning
+
+Without the RBO, the CBO would have to consider every
+shape of every plan: for `n` joins, the search space is
+`O(n!)`; for `k` materializations, the space is `O(k!)`
+per join ordering; and so on. The RBO prunes this space
+in two ways:
+
+- **Equivalent classes.** The RBO groups plans into
+  equivalence classes under the rewriting rules. The CBO
+  need not consider plans within a class that are
+  guaranteed by the RBO to be suboptimal (e.g. plans
+  where a non-selective filter runs before a selective
+  one).
+- **Canonical form.** Each equivalence class has a chosen
+  *canonical form* (e.g. selections pushed as low as
+  possible, materializations clustered, topK fused). The
+  CBO enumerates realizations of the canonical form.
+
+The effect is that the CBO's search is over *plan shapes*
+and *physical realizations* jointly, but the *number of
+shapes* is small (typically 1–3 for the Agentic-memory
+queries we have explored).
+
+### 6.4 Style: Volcano/Cascades
+
+Our RBO is modeled on the Cascades framework [Graefe,
+1995]. Equivalence rules are first-class objects,
+organized by operator pair (e.g. one rule for
+`σ × μ`, another for `Γ × σ`). A memo structure
+caches explored expressions and their cost bounds. The
+implementation language is intentionally simple (Section
+8); the *interesting* code is the rules, not the engine.
+
+The key consequence: *adding a new operator is adding
+rules*. There is no central optimizer loop to modify. A
+contributor who wants to support, say, a temporal range
+join, writes the operator, the equivalence rules that
+reference it, and the cost-model entries — and the
+optimizer gains the new capability. This is the property
+that makes the algebra the API.
+
+### 6.5 Plan space and RBO complexity
+
+The RBO is a *program* over the equational theory of
+Section 4, and its behaviour is constrained by the
+*size* of the plan space and the *number* of rewrites
+required to reach the normal form. This subsection makes
+these constraints explicit.
+
+**Plan space.** For a query `Q`, define the **plan space**
+
+$$
+\mathrm{Space}(Q) \;=\; \{ P : P \text{ is a logical plan reachable from } Q \text{ by } \to_{\mathrm{RBO}} \}.
+$$
+
+By Theorem 4.2, the plan space is finite, and its
+extremal elements are the normal form of `Q` (unique up
+to the V1/G1 commutativity classes). The plan space
+is a DAG under `→_{RBO}`, with `Q` at the root and
+the normal form `Q*` at the leaves (or, more precisely,
+at the unique normal-form node modulo the V1/G1
+equivalence).
+
+**Size bound.** Let `n` be the number of operator
+occurrences in `Q`. The plan space is bounded by
+
+$$
+|\mathrm{Space}(Q)| \;\le\; c^n
+$$
+
+for a constant `c` that depends on the rule set. The
+exponent comes from three sources: (i) the `n!`
+permutations of `n` independent materializations (M2);
+(ii) the `k!` permutations of `k` vector selections
+(V1); and (iii) the `d!` permutations of `d` graph
+expansion and join orderings (G1, A4). Each operator
+in `Q` can be independently permuted with the operators
+it commutes with, and each materialization can be
+independently permuted with other materializations. In
+the worst case, every operator commutes with every other,
+and the bound is `O(n!)`. In practice, the commutation
+relations are sparser: a vector selection commutes with
+another only on disjoint column references, and a
+materialization commutes with another only when their
+expressions are independent. For typical Agentic-memory
+queries (5–15 vector columns, 1–3 materializations, 1
+graph expansion), the plan space is `O(10^3)` to
+`O(10^5)`, not the worst-case `O(15!)`.
+
+**RBO runtime.** A naïve RBO that exhaustively applies
+all rules to all redexes runs in time
+
+$$
+T_{\mathrm{RBO}} \;\le\; |\mathrm{Space}(Q)| \cdot |R| \cdot t_{\mathrm{match}},
+$$
+
+where `|R|` is the number of rules and `t_{\mathrm{match}}`
+is the time to match a rule's LHS against a redex. With
+the weight function `w` of 4.6, the number of rule
+applications is bounded by `w(Q)`, since every
+application strictly decreases `w`. The effective
+runtime is
+
+$$
+T_{\mathrm{RBO}} \;\le\; w(Q) \cdot |R| \cdot t_{\mathrm{match}} \;\in\; O(|Q|),
+$$
+
+linear in the size of the input plan.
+
+**Termination.** By the termination argument of 4.6,
+the RBO terminates after a finite number of rewrites.
+The weight function `w` provides a worst-case bound: the
+number of rewrites is at most `w(Q)`, and the number of
+distinct plans explored is at most the size of the plan
+space. In practice, the RBO reaches the normal form in
+`O(|Q|)` rewrites for typical queries.
+
+**Pruning heuristics.** The RBO can be made faster by
+two additional pruning heuristics, both compatible with
+Theorem 4.2:
+
+- **Rule preconditioning.** Each rule carries a
+  precondition (e.g. "M1 fires only on a `μ` whose
+  materialized attribute is referenced in a downstream
+  `σ`"). This reduces the number of redexes considered
+  per rule and has no effect on correctness — a rule
+  with a failing precondition simply does not fire.
+- **Memoization.** The RBO memoizes explored subplans in
+  a Cascades-style memo structure, so a subplan that
+  has been rewritten to its normal form is not re-
+  explored. This is purely an efficiency measure; the
+  result is unchanged.
+
+**When is the plan space small?** The plan space is
+small when the query has (i) few vector columns (so V1
+contributes few orderings), (ii) few materializations
+(so M2 contributes few orderings), and (iii) no graph
+expansion or only one (so G1 contributes few orderings).
+For these queries, the RBO terminates quickly and the
+CBO's search is over a small set of canonical forms.
+
+**When is the plan space large?** The plan space is
+large when the query has (i) many correlated vector
+columns and the predicate is selective, because V1
+alone creates `k!` plan variants for `k` vector
+selections; or (ii) a deep graph expansion `Γ_{g,d}`
+with `d` large, because G1's effect compounds with
+the underlying selection-pushdown. For these queries,
+the RBO must explore more of the plan space, and the
+CBO's choice of physical realization matters more.
+
+---
+
+## 7. Cost Model & CBO
+
+The cost-based optimizer (CBO) is the second phase. It
+takes the equivalence classes produced by the RBO and
+selects a *physical plan* — a tree of physical operators —
+under a cost model.
+
+### 7.1 Physical operator inventory
+
+The physical operators are the *implementations* of the
+logical operators. Each physical operator carries
+parameters that the CBO can tune.
+
+| Physical | Implements                        | Notes                                 |
+|----------|-----------------------------------|---------------------------------------|
+| `H_{V,q,τ}`   | `σ_{‖V−q‖<τ}`                 | ANN range scan; strategy ∈ {HNSW, IVF, scan}; HNSW params `ef, M`; IVF params `nlist, nprobe`; scan cost linear in `|R|`.|
+| `B_{col,r}`   | `σ_{col ∈ r}`                  | B-tree range scan.                    |
+| `F(R)`        | base scan                        | Sequential file scan.                 |
+| `I_{t,q,θ}`   | `σ_{BM25>θ}`                   | Inverted index probe.                 |
+| `G_{g,d,dir}` | `Γ_{g,d}`                      | Graph traversal; `dir` is direction.  |
+| `Sort(O)`     | `τ_O`                           | Full sort.                            |
+| `TopK(O,K)`   | `τ_O Λ_K` (T1)                 | Bounded-heap top-K.                   |
+| `Materialize(e→c)` | `μ_{e→c}`                  | Computes `e` and binds `c`.           |
+| `HashJoin`, `NLJ`, `MergeJoin` | `⋈_ψ`             | Standard join algorithms.             |
+| `Partition`, `HashBuild`, `HashProbe` | hash-based operators | Standard enforcers.        |
+
+### 7.2 Cost dimensions
+
+The cost model has four dimensions. The first three are
+classical; the fourth is new.
+
+- **I/O cost.** Page reads and writes. Dominant for
+  cold data; mitigated by indexes.
+- **CPU cost.** Distance computations, BM25 scoring,
+  tuple materialization. For vector queries, the
+  per-probe distance computation is the dominant
+  component.
+- **Memory cost.** Working set size, in particular the
+  size of intermediate hash tables and the priority
+  queue for `TopK`.
+- **Approximation cost.** The *quality penalty* of
+  choosing an approximate physical operator over an
+  exact one. For the ANN family this is expressed as
+  `1 − recall(strategy, params)`: HNSW depends on
+  `ef, M`; IVF on `nlist, nprobe`; the scan strategy
+  is exact (recall = 1) but its cost is `O(|R|·d)`. The
+  `topK` physical operator is exact given a correct
+  scoring function (approximation = 0). The CBO
+  expresses approximation as a constraint — "the chosen
+  plan must have recall ≥ `ρ_min`" — or as a term in the
+  cost function weighted by application preference.
+
+The cost model is *additive across operators in a
+pipeline*, weighted by estimated cardinalities at each
+boundary. The estimation primitives (cardinality,
+distinct-value count, range selectivity) are themselves
+non-trivial in the multi-modal setting; we discuss
+their realization in the prototype (Section 8).
+
+### 7.3 Logical-to-physical bridge
+
+For each logical operator, the CBO enumerates a set of
+candidate physical realizations. The bridge is a set of
+*implementation rules* in the Cascades sense:
+
+- `σ_{‖V−q‖<τ}(R)` may be realized as `H_{V,q,τ}(R)`
+  with one of three strategies: HNSW (if an HNSW index
+  exists on `V`), IVF (if an IVF index exists), or a
+  brute-force scan over `μ_{‖V−q‖→d} F(R)` followed by
+  `σ_{d<τ}`. The CBO also considers the *hybrid* plan:
+  ANN with conservative parameters to produce
+  candidates, followed by an exact re-evaluation of the
+  threshold. When the modality mix is unknown a priori
+  (e.g. before cost calibration), the scan baseline is
+  always available and provides a useful ceiling.
+- `σ_{BM25>θ}(R)` may be realized as `I_{t,q,θ}(R)`
+  if an inverted index exists on `t`; otherwise as a
+  full scan with BM25 scoring.
+- `τ_O Λ_K(R)` is realized as `TopK(O, K)(R)`, per
+  T1. The CBO may also consider `Sort(O)(R)` followed
+  by `Limit(K)`, useful when the cost of sorting is
+  amortized over a downstream group-by.
+
+### 7.4 Adaptive execution
+
+Static cost estimates are notoriously wrong, especially
+for vector workloads where selectivity is hard to
+predict from small samples. The prototype is designed
+to support **adaptive execution**: at well-defined
+plan points (e.g. after an ANN probe returns its
+candidate set), the executor re-consults the cost
+model with observed cardinalities and may switch to a
+different sub-plan. The algebra is unchanged; only the
+physical subtree is replaced. This is a feature
+enabled by the logical/physical separation: an
+adaptive switch is *safe* by construction, because the
+two physical subtrees are both implementations of the
+same logical operator.
+
+### 7.5 Formal cost model and CBO complexity
+
+The cost model of 7.2 is a *vector* of four components,
+each of which can be reasoned about symbolically. This
+subsection makes the cost model formal and analyzes the
+complexity of the CBO's search.
+
+**Cost as a 4-tuple.** For a logical plan `P`, define
+
+$$
+\mathrm{Cost}(P) \;=\; (\mathrm{io}(P),\; \mathrm{cpu}(P),\; \mathrm{mem}(P),\; \mathrm{approx}(P)) \;\in\; \mathbb{R}_{\ge 0}^4.
+$$
+
+The CBO's objective is to choose, among all physical
+realizations of the canonical form of `P`, the one that
+*minimizes a weighted sum* of the four components (with
+weights set by application policy), subject to a
+*constraint* `approx(P) ≤ ε` for an application-chosen
+`ε ∈ [0, 1]`. Equivalently, the CBO can minimize a
+Pareto-front: a plan `P₁` Pareto-dominates `P₂` if
+`Cost(P₁) ≤ Cost(P₂)` componentwise and at least one
+component is strictly smaller.
+
+**Per-operator cost expressions.** Each physical
+operator has a symbolic cost expression. We give the
+expressions for the core physical operators; the cost
+of a plan is the sum of the costs of its operators,
+adjusted by the cardinality at each operator's input.
+
+| Physical operator | Cost vector |
+|---|---|
+| `F(R)` (file scan) | `(B(R), 0, B(R), 0)` |
+| `B_{col, range}(R)` (B-tree range) | `(O(log N + k), 0, k, 0)` |
+| `H_{V, q, τ}(R)` (HNSW range) | `(O(ef · log N), O(ef · d), O(ef), 1 − recall(ef, M))` |
+| `H_{V, q, τ}(R)` (IVF range) | `(O(nprobe · d), O(nprobe · d · d_quant), O(nprobe), 1 − recall(nprobe, nlist))` |
+| `H_{V, q, τ}(R)` (brute-force scan) | `(O(B(R)), O(|R| · d), O(1), 0)` |
+| `I_{col, term}` (inverted index) | `(O(postings_size), O(postings_size · score), O(postings_size), 0)` |
+| `G_{g, d}` (graph traversal) | `(O(|V| + |E|) bounded by depth d, O(visited), O(visited), 0)` |
+| `Sort(O)(R)` | `(O(B log B), O(B log B), O(B), 0)` |
+| `TopK(O, K)(R)` | `(O(B log K), O(B log K), O(K), 0)` |
+| `Materialize(e→c)(R)` | `(0, O(|R| · cost(e)), O(|R|), 0)` |
+| `HashJoin(R, S)` | `(B(R) + B(S), O(|R| + |S|), O(min(\|R\|, \|S\|)), 0)` |
+| `NLJ(R, S)` | `(B(R) · \|S\|, O(\|R\| · \|S\|), 0, 0)` |
+
+In the table, `B(R)` denotes the page count of `R`,
+`N` the cardinality, `k` the result size, `d` the
+embedding dimensionality, `ef` and `M` the HNSW
+parameters, `nlist` and `nprobe` the IVF parameters,
+`d_quant` the per-probe quantized-distance cost, and
+`|·|` cardinality. The vector-selection row lists
+three ANN strategies side by side: HNSW (sub-linear,
+approximate), IVF (sub-linear in the probe set,
+approximate), and brute-force scan (linear, exact). The
+CBO picks among them by combining the four cost
+components; an ANN strategy is only chosen when its
+approximation cost fits the application's `ρ_min`
+constraint.
+
+**Total cost.** For a plan tree `T = op(T₁, ..., Tₖ)`,
+
+$$
+\mathrm{Cost}(T) \;=\; \mathrm{Cost}_{\mathrm{op}}(T) \;+\; \sum_{i=1}^{k} \mathrm{Cost}(T_i) \;+\; \mathrm{io}_{\mathrm{materialize}}(T),
+$$
+
+where `io_materialize` is the cost of materializing
+intermediate results at materialization points (the
+spill cost, which is incurred only when a subtree is
+forced to materialize by, e.g., a non-pipelineable
+join). The cost is recursive: the cost of a plan is
+the sum of its operators' costs, each evaluated at the
+input cardinality determined by the plan's structure.
+
+**CBO complexity.** The CBO's search space is
+
+$$
+|\mathrm{Space}_{\mathrm{CBO}}(Q)| \;\le\; |\mathrm{Space}_{\mathrm{RBO}}(Q)| \cdot |\mathrm{Phys}|^n,
+$$
+
+where `|Phys|` is the number of physical
+implementations of each logical operator and `n` is the
+number of operator occurrences in the canonical form
+of `Q`. The exponential factor in `n` comes from the
+choice of physical implementation at each operator; the
+factor `|Space_RBO|` comes from the RBO's plan space
+(6.5). The CBO's worst-case runtime is
+
+$$
+T_{\mathrm{CBO}} \;\le\; |\mathrm{Space}_{\mathrm{RBO}}(Q)| \cdot |\mathrm{Phys}|^n \cdot t_{\mathrm{cost}},
+$$
+
+where `t_{\mathrm{cost}}` is the time to evaluate the
+cost function for one physical plan.
+
+**Pruning heuristics.** The CBO applies three
+standard pruning techniques, all compatible with
+correctness:
+
+- **Dynamic programming over join orderings** (Selinger-
+  style). For the `⋈`-fragment of the algebra, the CBO
+  computes the optimal left-deep tree in `O(n^2)` time
+  using the recurrence of [Selinger et al., 1979].
+- **Greedy selection for vector predicates.** When the
+  vector selections are estimated to be highly
+  selective, the CBO evaluates them in selectivity
+  order (most selective first), without exploring
+  all `k!` orderings.
+- **Top-K pruning for `ORDER BY`.** When `τ` is
+  followed by `Λ_K`, the CBO prunes physical plans
+  whose cost exceeds the best top-K cost found so far
+  (per T1).
+
+**Open problem.** When is cost-based optimization in
+the new algebra tractable? The classical join-ordering
+problem is solvable in polynomial time for left-deep
+trees (Selinger) but NP-hard for bushy trees [Ibaraki
+& Kameda, 1984]. With vector selections as first-class
+operators (each contributing an `ef`-parameterized
+physical realization), graph expansions (each
+contributing a direction-parameterized physical
+realization), and materializations (each potentially
+shared or distinct), the CBO's search space is richer
+than the classical join-ordering problem. Identifying
+polynomial subclasses — for example, "queries with at
+most one graph expansion and at most two materializations
+are optimizable in polynomial time" — is an open
+problem to which the algebra of this paper provides
+the formal vocabulary.
+
+---
+
+## 8. An Algebraic Architecture
+
+The contribution of this paper is the algebra of
+Section 3, its equational theory of Section 4, and the
+optimizer that falls out of it (Sections 6–7). This
+section makes explicit the *architectural* consequences
+of the algebraic foundation: the layers a system must
+provide, the mapping from logical to physical, the
+shape of the optimizer pipeline, and the scope
+deliberately left out. We argue that the algebra
+*implies* a particular system architecture, and that
+this architecture is robust to the choice of storage
+primitives and to the future evolution of the cost
+model.
+
+### 8.1 From algebra to system: the design space
+
+A system that instantiates the MosaicOpt algebra must
+provide four layers, each corresponding to a piece of
+the theory:
+
+1. **Storage layer.** Physical realizations of the
+   column types: vector columns realized as ANN-indexed
+   indexes (or, in the future, learned indexes or
+   product-quantization codes), text columns realized
+   as BM25 inverted indexes, structured columns
+   realized as B-trees or heap files, and graph
+   relations realized as CSR or adjacency-map
+   structures. Each storage primitive is a *physical
+   operator* in the algebra of Section 7; it implements
+   one or more logical operators.
+
+2. **Surface layer.** The desugaring rules of Section
+   5.6 compile SQL — with the `IS NEAR`, `MATCHES`,
+   and `IS REACHABLE` extensions — into logical
+   algebra plans. The surface layer is the *only*
+   component that sees SQL; from the optimizer's
+   point of view, it consumes algebra plans.
+
+3. **Rule-based optimizer (RBO) layer.** Applies the
+   equational rules of Section 4 to rewrite logical
+   plans into their normal form (Theorem 4.2). The
+   convergent-rewriting property of 4.6 guarantees
+   termination and confluence: the RBO is
+   *well-behaved by construction*, and its
+   implementation is a small loop that applies
+   rules that decrease the weight function `w`.
+
+4. **Cost-based optimizer (CBO) layer.** Enumerates
+   physical implementations of the logical normal
+   form and selects the minimum-cost realization
+   under the 4-tuple cost model of 7.5. The CBO's
+   search is over the canonical form (6.5) and the
+   table of logical-to-physical mappings (8.2
+   below).
+
+The four layers are *strictly ordered*: each layer
+consumes only the output of the layer above it. This
+ordering is what makes the system *compositional*.
+Adding a new storage primitive (e.g. a learned index)
+is a matter of adding a new physical operator and a
+new mapping entry; the RBO and the CBO are unchanged.
+Adding a new SQL clause is a matter of adding a new
+desugaring rule; the algebra, RBO, and CBO are
+unchanged. Adding a new optimizer rule is a matter of
+adding a rule to the equational theory; the cost
+model and the executor are unchanged.
+
+### 8.2 Storage and the logical-to-physical bridge
+
+The bridge between the logical algebra (what the
+optimizer rewrites) and the physical algebra (what
+the executor runs) is a **table of logical-to-
+physical mappings** indexed by predicate form. The
+table is the single point of contact between the
+abstract algebra and the concrete storage layer.
+
+| Logical operator             | Realization          | Storage primitive        |
+|------------------------------|----------------------|--------------------------|
+| `σ_{‖V−q‖<τ}(R)`             | `H_{V, q, τ}(R)`     | HNSW range scan          |
+| `σ_{‖V−q‖<τ}(R)` (no HNSW)   | `μ_{‖V−q‖→d} F(R); σ_{d<τ}` | Linear scan + filter |
+| `σ_{BM25(t,q)>θ}(R)`         | `I_{t, q, θ}(R)`     | Inverted index probe     |
+| `σ_{A ∈ range}(R)`           | `B_{A, range}(R)`    | B-tree range scan        |
+| `Γ_{g, d}(L)`                | `G_{g, d, dir}(L)`   | Graph traversal, dir-aware|
+| `τ_O Λ_K(L)`                 | `TopK(O, K)(L)`      | Bounded-heap top-K       |
+| `τ_O(L)` (without `Λ`)       | `Sort(O)(L)`         | Full sort                |
+| `μ_{e→c}(L)`                 | `Materialize(e→c)(L)`| Per-row evaluation       |
+| `L ⋈_ψ M`                    | `HashJoin`/`NLJ`/`MergeJoin` | Standard join algorithms |
+| `F(R)`                       | `F(R)`               | Sequential file scan     |
+
+Three observations about this table:
+
+- **The table is small.** The number of physical
+  realizations per logical operator is bounded by a
+  small constant (typically 1–4): the choice between
+  HNSW and linear scan, between `TopK` and `Sort`/`Limit`,
+  and between the join algorithms. The CBO's search
+  space (7.5) is therefore controlled.
+
+- **The table is the only place a new storage
+  primitive enters.** A learned index [Kraska et al.,
+  2018], a product-quantization code, or a more
+  sophisticated HNSW variant is a new entry in the
+  table, with a corresponding cost-vector entry in
+  7.5. No optimizer change is required.
+
+- **The table is auditable.** Because the table is a
+  *first-class data structure* (not code), it can be
+  inspected, version-controlled, and tested. The
+  optimizer's behaviour is fully determined by the
+  table plus the equational theory, and both are
+  inspectable.
+
+### 8.3 The optimizer pipeline
+
+The optimizer is a three-stage pipeline that
+corresponds to the three layers of 8.1:
+
+1. **SQL → logical algebra.** The desugaring rules
+   of 5.6 (D1–D5) compile the SQL surface into a
+   logical plan. This stage is a *function*; it has
+   no decision points and is trivially auditable.
+
+2. **Logical → logical (RBO).** The equational
+   rules of Section 4 are applied to the plan. The
+   RBO terminates (4.6 termination) and is
+   confluent (Theorem 4.2), so the output is the
+   *unique normal form* of the input. The CBO can
+   therefore treat the RBO's output as a single
+   representative of the equivalence class; it need
+   not consider the V1/M2/G1 permutations.
+
+3. **Logical → physical (CBO).** The cost-based
+   search enumerates physical realizations of the
+   normal form, evaluates each under the cost
+   vector of 7.5, and selects the minimum. The CBO
+   is the *only* stage that involves search; the
+   other two are functional.
+
+The pipeline's correctness argument is layered:
+stage 1 is correct by construction (the desugaring
+is the definition of the SQL surface); stage 2 is
+correct by Theorem 4.2 (the RBO preserves the
+logical plan's semantics); stage 3 is correct by
+the bridge table (each physical operator
+implements its logical operator by definition). The
+executor, which runs the physical plan, is correct
+by the physical operators' specifications. The
+overall correctness is a *composition* of these
+four correctness arguments, and each is inspectable.
+
+### 8.4 What is left out
+
+The algebra of this paper is deliberately scoped to
+the read-only, single-node, single-user setting.
+The following extensions are explicitly out of scope
+and are the subject of the open problems of
+Section 10:
+
+- **Write paths.** How memory evolution (insert,
+  update, delete) interacts with the algebra. A
+  write algebra would need to model incremental
+  updates to materialized views (`μ` becomes stale
+  when its underlying data changes) and to the
+  cost model's statistical summaries (cardinality
+  estimates drift). This is a substantial
+  theoretical problem in its own right, and the
+  current paper's contribution — the read-only
+  equational theory — is the necessary foundation
+  on which a write theory would build.
+
+- **Multi-tenancy.** Per-user memory isolation,
+  access control, and the corresponding cost-model
+  terms. The natural extension is to add a
+  `tenant` attribute and the corresponding
+  selection-pushdown rules (A4 with `tenant = u`
+  as the predicate). The equational theory of 4
+  applies with no changes; the cost model of 7
+  gains a tenant-cardinality term.
+
+- **Distribution.** How the algebra extends to a
+  distributed setting (sharding, replication,
+  network cost). The non-identity N3 — that limit
+  and order do not distribute over union — is a
+  particular obstacle for distributed `topK`; a
+  partition-aware topK algorithm is an open
+  research direction (10.4).
+
+- **Calibration of the cost model.** How to
+  estimate the parameters in the cost vector
+  (cardinality, selectivity, HNSW `ef`/`M`
+  trade-offs, BM25 `k₁`/`b`). This is empirical
+  work — the *physics* of the algebra — and is
+  not a theoretical contribution in the PODS
+  sense.
+
+These exclusions are deliberate. The algebra is the
+*central* contribution; the cost model and the
+executor are the *necessary* accompaniments; the
+write path, multi-tenancy, distribution, and
+calibration are *future* work that the algebra
+makes possible but does not yet contain. A
+theoretical paper that attempted to do all four
+would dilute the equational-theory contribution
+that is the paper's core.
+
+---
+
+## 9. Related Theoretical Work
+
+The MosaicOpt algebra sits at the intersection of
+classical relational algebra, algebraic extensions
+of the relational model, the theory of equational
+rewriting, and the cost-based optimization literature.
+This section surveys the most directly relevant prior
+work in each of these threads and locates MosaicOpt's
+contribution precisely. The goal is not to enumerate
+all related work but to identify the *lineage* of the
+algebra and to make clear what is novel.
+
+### 9.1 Classical relational algebra
+
+The lineage of MosaicOpt begins with Codd's
+relational algebra [Codd, 1970], which showed that a
+small set of operators — selection, projection,
+Cartesian product, union, set difference, and rename
+— is sufficient to express any first-order query.
+Subsequent work refined the operator set (adding
+explicit `⋈` for theta-join, grouping/aggregation,
+ordering, and limits) and crystallized in SQL. Date's
+textbook synthesis [Date, 2003] and Ullman's
+[Ullman, 1988] established the relational algebra as
+the *lingua franca* of database theory.
+
+The second foundational pillar is **query
+optimization**. Selinger's cost-based optimizer for
+System R [Selinger et al., 1979] established the
+template that nearly every commercial RDBMS still
+follows: enumerate alternative orderings and access
+paths, estimate cost under a cardinality model, pick
+the cheapest. The **Volcano extensible query
+evaluation framework** [Graefe, 1994] and the
+**Cascades** optimizer [Graefe, 1995] generalized
+this to a *rule-based* outer loop driving a
+*cost-based* inner search, in which equivalence rules
+over logical operators are first-class objects, and
+the optimizer is itself extensible by adding rules.
+
+The insight of Cascades — that the algebra is the API
+— is the direct ancestor of MosaicOpt's design. A
+new operator is shipped with its equivalence rules and
+cost model, and the optimizer gains new capabilities
+without any central rewrite. MosaicOpt inherits this
+property.
+
+### 9.2 Algebraic extensions of the relational model
+
+MosaicOpt is not the first proposal to extend the
+relational algebra. The literature is rich; we
+highlight the most directly relevant threads.
+
+- **Nested relational algebra.** The nested
+  relational algebra [Thomas & Fischer, 1986]
+  extends Codd's algebra with set-valued attributes,
+  enabling expression of object-oriented queries
+  without a join. MosaicOpt's first-class
+  materialization is in the spirit of the nested
+  algebra's power to compute and bind complex
+  values, but the focus is different: nested algebra
+  is about *structuring* complex values, while
+  MosaicOpt is about *binding* computed values
+  (vector distances, BM25 scores) for downstream
+  use.
+
+- **Object-relational algebra.** Beech's extension
+  [Beech, 1989] and the SQL-99 object-relational
+  model added user-defined types and methods to the
+  relational substrate. MosaicOpt's typed
+  vector/text/graph columns are in the same
+  spirit — a "richer type system on top of the
+  relational model" — but the algebraic treatment
+  is more disciplined: a typed column is a
+  *first-class predicate* and a *first-class
+  materialization expression*, not just a method
+  call.
+
+- **Temporal algebra.** Tuzhilin and Clifford's
+  [1990] temporal algebra and Snodgrass's
+  [Snodgrass, 1995] temporal extensions add
+  time-varying attributes and time-aware predicates
+  to the relational model. MosaicOpt's
+  graph-expansion operator `Γ` is in the same
+  spirit — extending the model to a dimension
+  (graph) that classical algebra does not capture
+  — but the dimensions are different. The
+  equational theory of `Γ` (G1) is the analogue of
+  the temporal-algebra identities.
+
+- **Semi-structured and XML algebra.** The
+  semi-structured algebra [Fernandez, Simeon &
+  Wadler, 2000] and the various XPath/XQuery
+  algebras add a *tree* data model. The
+  structural recursion of these algebras is
+  similar in spirit to MosaicOpt's `Γ` (which
+  recurses over a graph relation), but the
+  equational theory is different: the
+  semi-structured algebras emphasize *bisimulation*
+  and *structural equivalence*, while MosaicOpt
+  emphasizes *selection pushdown through graph
+  expansion* (G1).
+
+These extensions share MosaicOpt's pattern of
+"extend the algebra, prove identities". MosaicOpt's
+contribution is to extend in a *new direction*
+(multi-modal: text + vector + graph, in the
+context of agentic memory) and to provide, in one
+place, a *SQL surface* and an *equational theory*
+that the prior extensions did not.
+
+### 9.3 Equational theories in query optimization
+
+The classical identities of relational algebra —
+selection pushdown (A4), join commutativity, projection
+pushdown (A5) — have been part of the optimizer's
+arsenal since System R. What MosaicOpt adds is (i) a
+*new set of identities* (M1–M3, V1, J1, T1, G1) for
+the extended operators, and (ii) an explicit
+*convergent-rewriting* analysis (4.6) that proves the
+extended rewriting system is terminating and confluent.
+
+The convergent-rewriting analysis draws on a
+classical literature that pre-dates databases:
+
+- **Newman's lemma** [Newman, 1942]: termination +
+  local confluence ⟹ confluence. This is the
+  formal foundation of the rewriting-system
+  analysis in 4.6.
+- **Huet's work on confluence** [Huet, 1980]:
+  critical-pair analysis as a sufficient condition
+  for local confluence. We use critical-pair
+  analysis to enumerate the overlapping-redex cases
+  in 4.6.
+- **The Terese textbook** [Terese, 2003]: a
+  comprehensive treatment of abstract rewriting
+  systems. The orientation of the equational
+  theory into a rewriting system (4.6) follows the
+  textbook's pattern of *orienting an equational
+  theory into a reduction system and proving its
+  confluence*.
+
+In the database literature, the closest prior work
+is Atzeni and Torlone's [Atzeni & Torlone, 1996]
+treatment of view maintenance as algebraic rewriting.
+Their setting is different (view maintenance vs.
+query optimization), but the *pattern* is the same:
+orient an equational theory, prove confluence, and
+exploit the normal form to drive a transformation.
+
+MosaicOpt's convergent-rewriting analysis is, to our
+knowledge, the first such analysis for a relational
+algebra that includes vector, text, and graph
+operators.
+
+### 9.4 Cost-based optimization complexity
+
+The complexity of cost-based optimization is a
+classical subject. Selinger et al. [1979] gave an
+`O(n^2)` dynamic programming algorithm for left-deep
+join orderings. Ibaraki and Kameda [1984] showed that
+the join-ordering problem for *bushy* trees is
+NP-hard. Pellenkoft, Galindo-Legaria, and Kersten
+[Pellenkoft et al., 1996] studied the complexity of
+join ordering with outer joins and other extensions.
+
+MosaicOpt's CBO (7.5) inherits this complexity. The
+join-ordering subproblem is identical to the
+classical one; the additions are (i) vector
+selections as first-class operators (each
+contributing an `ef`-parameterized physical
+realization), (ii) graph expansions (each
+contributing a direction-parameterized realization),
+and (iii) materializations (each potentially shared
+or distinct). The CBO's search space is therefore
+richer than the classical one; identifying
+polynomial subclasses is an open problem (10.1).
+
+More recent work on cost-based optimization for
+hybrid systems includes the learned optimizer
+literature (Balsa, CostFormer) and the cardinality
+estimation literature. These are *physical* and
+*empirical* contributions — not theoretical
+contributions to the equational theory of the
+algebra — and are orthogonal to MosaicOpt.
+
+### 9.5 Hybrid query algebra (recent)
+
+The last decade has seen a sustained effort to bring
+vector and relational together, but with very few
+*theoretical* contributions. The systems are
+numerous; the algebras are few.
+
+- **Vector-aware RDBMS extensions** —
+  PostgreSQL's `pgvector`, DuckDB's `vss`, Oracle
+  AI Vector Search — add a vector type, an ANN
+  index, and vector distance predicates.
+  Integration is at the function-call level. There
+  are no first-class identities for vector
+  selection pushdown, no cost model for
+  approximation, no principled way to rewrite a
+  hybrid query. These are *systems*, not
+  *theories*.
+
+- **Purpose-built hybrid stores** — Pinecone,
+  Weaviate, Qdrant, Milvus, Vespa — are
+  vector-first, with metadata filtering bolted on.
+  Their optimization story is pragmatic, not
+  foundational. Their planners have rewrites, but
+  the rewrites are not exposed as named identities.
+
+- **Multi-modal query languages** — SQL/MM, SPARQL
+  with full-text extensions, Cypher, and various
+  research prototypes — mix graph, text, and (in
+  a few cases) vector. SPARQL has a careful
+  algebraic foundation, but its fusion with vector
+  predicates is still an open area. Cypher is
+  graph-first; SQL/MM is multi-modal but does not
+  address vector similarity or ANN.
+
+- **The MosaicOpt project** — is, to our knowledge,
+  the first to provide a *unified algebraic
+  foundation* for text, vector, and graph in the
+  context of agentic memory, with a *proven
+  equational theory* (4.6, Theorem 4.2) and a
+  *formal cost model* (7.5).
+
+The common pattern in the prior systems: every
+system mixes the modalities by *fusing scores at
+the application layer*, not by *extending the
+algebra that defines what counts as an answer*.
+MosaicOpt's contribution is to make the fusion
+*first-class in the algebra* — a materialization
+expression is a syntactic construct, the optimizer
+sees it, the cost model accounts for it, and the
+equational theory of 4 applies to it.
+
+### 9.6 What this paper does not cover
+
+Three conscious exclusions bound the scope of the
+contribution.
+
+- **We do not propose a new physical data
+  structure.** HNSW, B-trees, and inverted indexes
+  are taken as external; the paper's contribution
+  is the *algebraic* use of these primitives, not
+  their internal design. A learned-index primitive
+  [Kraska et al., 2018] would be a drop-in
+  replacement in the bridge table of 8.2; the
+  algebra is unchanged.
+
+- **We do not propose a new learning-based
+  optimization.** CostFormer, Balsa, and the
+  learned-cardinality literature are *empirical*
+  contributions to the *physical* layer. The
+  MosaicOpt contribution is at the *logical* layer:
+  the algebra, its equational theory, and the
+  cost-model *framework*. A learned optimizer can
+  be plugged in to *instantiate* the cost model of
+  7.5; the algebra and equational theory are
+  unchanged.
+
+- **We do not propose a new transaction model.**
+  The algebra is read-only. Transactional
+  extensions (writes, isolation levels,
+  multi-version concurrency) are out of scope and
+  are addressed in 10.5.
+
+These exclusions are not weaknesses; they are
+*scope choices* that keep the contribution focused
+on the algebraic foundation. The algebra is the
+paper's central contribution, and the paper
+argues that the algebra, by itself, is a useful
+and complete theoretical contribution.
+
+---
+
+## 10. Open Theoretical Problems
+
+The algebra of Section 3, the equational theory of
+Section 4, the optimizer of Sections 6–7, and the
+architectural sketch of Section 8 are the
+contributions of this paper. They are not the *end*
+of the story: each layer opens new theoretical
+problems that the algebra makes accessible but does
+not yet solve. This section enumerates the most
+directly consequential open problems, framed in the
+vocabulary the paper has introduced.
+
+### 10.1 Complexity of cost-based optimization in the new algebra
+
+Classical join ordering is solvable in `O(n^2)` for
+left-deep trees [Selinger et al., 1979] but
+NP-hard for bushy trees [Ibaraki & Kameda, 1984].
+The CBO of 7.5 adds three new dimensions:
+
+- **Vector selections as first-class operators.**
+  Each vector selection has an `ef`-parameterized
+  physical realization, contributing a continuous
+  (rather than discrete) choice to the CBO's
+  search. The CBO's search is no longer over a
+  finite space of physical operators per logical
+  operator.
+- **Graph expansion as a first-class operator.**
+  Each `Γ_{g, d}` has a direction-parameterized
+  physical realization, and the cost depends on
+  the *graph density* at the expansion point,
+  which is not known a priori.
+- **Materialization as a first-class operator.**
+  Each `μ` may be *shared* with another
+  materialization (a single distance computation
+  used in two places) or *distinct*. The CBO
+  must decide sharing.
+
+The complexity of optimal plan selection in this
+richer setting is open. We conjecture NP-hardness in
+the general case (because the sharing-vs-distinct
+choice is a partition problem), and conjecture
+polynomial-time subclasses for queries that bound
+the number of graph expansions, the depth of
+materialization sharing, and the cardinality of
+physical realizations per operator. Identifying
+these subclasses — and proving the boundary between
+tractable and intractable — is a central open
+problem.
+
+### 10.2 Cost model calibration
+
+The cost vector of 7.5 has parameters — cardinality
+estimates, ANN `ef`/`M`/`nprobe` trade-offs, BM25 `k₁`/`b`
+— that must be *calibrated* against the data. For
+the algebraic theory, the cost is a *symbolic*
+function over the plan's structure; for a concrete
+system, it must be *instantiated* with measurements
+(statistical summaries, recall/precision curves,
+selectivity histograms).
+
+The calibration is the *physics* of the algebra:
+it depends on the data distribution, the workload,
+and the storage primitives. It is empirical work,
+not theoretical, but it is a critical open problem
+because a poorly calibrated cost model leads to a CBO
+that makes worse decisions than no CBO at all. The
+algebra's contribution is to *frame* the calibration
+problem precisely: the cost vector has four
+components, and each component's calibration is an
+independent subproblem.
+
+### 10.3 Adaptive optimization
+
+The cost model of 7.5 is *static*: it is evaluated
+once, at planning time, and the resulting plan is
+executed. In practice, the cost model is wrong:
+cardinality estimates drift, ANN recall varies
+with the query, and BM25 selectivity is hard to
+predict from small samples. **Adaptive
+optimization** — re-planning at well-defined plan
+points based on observed cardinalities — is a
+classical approach [Graefe, 1994; Deshpande et al.,
+2007].
+
+The open problem in the MosaicOpt setting is
+*how adaptive optimization interacts with the
+algebra's convergent rewriting* (4.6). When the
+CBO re-plans mid-execution, it must respect
+Theorem 4.2: the re-planned logical plan must
+behave as a "refinement" of the original plan,
+not a replacement. Two research questions arise:
+
+- **Re-planning safety.** If the CBO switches to a
+  different physical subplan mid-execution, is
+  the switch *safe* in the sense that the
+  logical plan's semantics is preserved? (The
+  answer is yes, by the bridge table of 8.2; the
+  *proof* is the open problem.)
+- **Re-planning convergence.** Does re-planning
+  preserve the RBO's normal-form property? If
+  the CBO switches to a subplan that is *not* in
+  the RBO's normal form, must it later re-rewrite?
+  (We conjecture yes, and the rewriting is local
+  to the switched subtree.)
+
+### 10.4 Distributed execution
+
+The algebra is single-node. Extending to a
+distributed setting requires (i) a model of network
+cost in the cost vector (7.5), (ii) a theory of
+*partition-aware* physical operators (e.g.
+partition-aware `TopK` that respects N3), and
+(iii) an extension of the equational theory to
+reason about partitioning.
+
+The challenge is that graph expansion `Γ` is
+harder to parallelize than vector selection
+`σ_{‖V−q‖<τ}`: a graph expansion must traverse
+edges, which cross partition boundaries; a vector
+selection can be partitioned by the vector index
+itself. The algebra should make the difficulty
+*visible* to the cost model: the cost of
+`Γ_{g, d}` is a function of the partition
+structure, not just the graph size.
+
+### 10.5 Write paths and memory evolution
+
+The algebra is read-only. A write algebra would
+need to model:
+
+- **Incremental updates to materializations.**
+  When a base row changes, every `μ` that depends
+  on it must be invalidated or recomputed. The
+  equational theory of 4 gives the *semantics* of
+  the materialization; the *incremental
+  maintenance* of the materialization is a
+  separate (and harder) problem.
+- **Index updates.** ANN and inverted indexes
+  must be kept consistent with the base data.
+  The interaction between incremental index
+  updates and the cost model's statistical
+  summaries is a subtle problem.
+- **Cost model drift.** The cost model's
+  parameters (cardinality, selectivity) drift
+  with the data. A write algebra must specify
+  when and how the cost model is re-calibrated.
+
+The interaction between writes and the algebra is
+the largest open problem in the paper, and is
+likely the subject of follow-up theoretical work.
+
+### 10.6 Privacy, security, and the algebra
+
+Agentic memory contains user data. Access control,
+differential privacy, and the algebraic treatment
+of privacy are open problems.
+
+A natural direction is to extend the algebra with
+*selection by capability* — e.g.
+`σ_{ACL(user) = 'read'}` — and to develop the
+corresponding equational theory for ACL predicates
+(a re-formulation of A4 with the ACL predicate as
+`φ`). Differential privacy can be framed as a
+*transformation* of the cost vector: the
+`approx` component of 7.5 becomes a privacy budget
+(ε, δ), and the CBO's constraint becomes a
+privacy constraint rather than a recall constraint.
+
+The algebra provides the vocabulary to formulate
+these problems; the solutions are open.
+
+### 10.7 Beyond first-order: higher-order, recursive, and aggregate queries
+
+The MosaicOpt algebra is *first-order* in the
+Codd sense. Three extensions are open:
+
+- **Higher-order queries.** "For all memory
+  units that mention X, find the one most
+  similar to Y" is a second-order query that
+  the current algebra does not directly
+  express. A natural extension is to add a
+  `∀` quantifier over memory units, with the
+  corresponding equational theory.
+- **Recursive queries.** Recursive queries
+  (e.g. transitive closure) are expressed via
+  `Γ` in the current algebra. The equational
+  theory of 4.3 covers the case when `Γ` is
+  *terminating* (the depth bound `d` is
+  finite). When the depth is unbounded, the
+  algebra's monotonicity properties still
+  apply, but the equational theory must be
+  re-proved for the least-fixed-point
+  semantics.
+- **Aggregate queries with vector predicates.**
+  "The average distance of the K nearest
+  neighbours" is an aggregate over a vector
+  selection. The current algebra does not
+  support aggregates over `μ` directly; a
+  grouping-aggregation extension is the
+  natural next step.
+
+These extensions are not in the paper, but the
+algebra is the *foundation* on which they would
+build.
+
+### 10.8 Closing
+
+The argument of this paper is simple: agentic
+memory is multi-modal, multi-modal is a query
+problem, query problems benefit from foundations,
+and the right foundation is an extension of
+relational algebra. The algebra is small, the
+rewrite rules are provable, the optimizer's
+convergence is provable (Theorem 4.2), the cost
+model is formal (7.5), and the architectural
+implications are explicit (Section 8). The open
+problems of 10.1–10.7 are the natural next steps
+for a research program that builds on the
+foundation this paper provides.
+
+---
+
+## Acknowledgements
+
+This draft builds on the project design
+brief (`docs/brief.md`). Sections 3–4
+derive from the brief's algebra-design
+decisions. The authors thank the open-source
+communities of ANN (hnswlib, Faiss), Tantivy,
+DuckDB, and Cascades-style optimizers for
+the building blocks that make the prototype
+tractable.
+
+---
+
+## References (informal)
+
+- Codd, E. F. (1970). *A Relational Model of Data
+  for Large Shared Data Banks.* CACM 13(6).
+- Selinger, P. G. et al. (1979). *Access Path
+  Selection in a Relational Database Management
+  System.* SIGMOD.
+- Graefe, G. (1994). *Volcano — An Extensible and
+  Parallel Query Evaluation System.* IEEE TKDE.
+- Graefe, G. (1995). *The Cascades Framework for
+  Query Optimization.* IEEE Data Engineering
+  Bulletin.
+- Salton, G., Wong, A. & Yang, C. S. (1975). *A
+  Vector Space Model for Automatic Indexing.*
+  CACM 18(11).
+- Robertson, S., Walker, S. & Jones, S. (1995).
+  *Okapi at TREC-3.* NIST Special Publication.
+- Mikolov, T. et al. (2013). *Efficient Estimation
+  of Word Representations in Vector Space.* ICLR
+  Workshop.
+- Reimers, N. & Gurevych, I. (2019). *Sentence-
+  BERT: Sentence Embeddings using Siamese BERT-
+  Networks.* EMNLP.
+- Malkov, Y. A. & Yashunin, D. A. (2018). *Efficient
+  and Robust Approximate Nearest Neighbor Search
+  Using Hierarchical Navigable Small World Graphs.*
+  IEEE TPAMI.
+- Kraska, T. et al. (2018). *The Case for Learned
+  Index Structures.* SIGMOD.
+- Dalvi, N. & Suciu, D. (2007). *Efficient Query
+  Evaluation on Probabilistic Databases.* VLDB J.

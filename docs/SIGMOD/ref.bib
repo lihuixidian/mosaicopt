@@ -1,0 +1,422 @@
+﻿% ref.bib -- bibliography for MosaicOpt (SIGMOD submission)
+% Compile cycle: pdflatex paper; bibtex paper; pdflatex paper; pdflatex paper
+
+% --------------------------------------------------------------------
+% FOUNDATIONAL
+% --------------------------------------------------------------------
+
+@article{codd1970,
+  author    = {E. F. Codd},
+  title     = {A relational model of data for large shared data banks},
+  journal   = {Communications of the ACM},
+  volume    = {13},
+  number    = {6},
+  pages     = {377--387},
+  year      = {1970}
+}
+
+@inproceedings{selinger1979,
+  author    = {P. G. Selinger and M. M. Astrahan and D. C. Chamberlin and R. A. Lorie and T. G. Price},
+  title     = {Access path selection in a relational database management system},
+  booktitle = {SIGMOD},
+  pages     = {23--34},
+  year      = {1979}
+}
+
+@inproceedings{graefe1994,
+  author    = {G. Graefe},
+  title     = {Volcano--an extensible and parallel query evaluation system},
+  booktitle = {IEEE TKDE},
+  year      = {1994}
+}
+
+@article{graefe1995,
+  author    = {G. Graefe},
+  title     = {The Cascades framework for query optimization},
+  journal   = {IEEE Data Engineering Bulletin},
+  volume    = {18},
+  number    = {3},
+  pages     = {19--29},
+  year      = {1995}
+}
+
+@article{chaudhuri1998optimization,
+  author    = {S. Chaudhuri},
+  title     = {An overview of query optimization in relational systems},
+  journal   = {ACM SIGMOD Record},
+  volume    = {27},
+  number    = {2},
+  pages     = {34--43},
+  year      = {1998}
+}
+
+@article{graefe2011,
+  author    = {G. Graefe and W. Guy and H. S. Bunker and R. L. Y. Kim and S. P. Saurabh and V. Vaishnav},
+  title     = {Query optimization through the looking glass},
+  journal   = {IEEE Data Engineering Bulletin},
+  volume    = {34},
+  number    = {1},
+  pages     = {11--19},
+  year      = {2011}
+}
+
+@article{hellerstein1995,
+  author    = {J. M. Hellerstein and M. Stonebraker},
+  title     = {Predicate migration: Optimizing queries with expensive predicates},
+  journal   = {ACM SIGMOD Record},
+  volume    = {24},
+  number    = {2},
+  pages     = {267--276},
+  year      = {1995}
+}
+
+@article{hellerstein2007adaptive,
+  author    = {J. M. Hellerstein and M. J. Franklin and S. Chandrasekaran and A. Deshpande and D. Hildrum and S. Madden and V. Raman and M. A. Shah},
+  title     = {Adaptive query processing: Technology in evolution},
+  journal   = {IEEE Data Engineering Bulletin},
+  volume    = {23},
+  number    = {2},
+  pages     = {7--18},
+  year      = {2000}
+}
+
+@inproceedings{chaudhuri2003approximate,
+  author    = {S. Chaudhuri and B. Kang and G. Shah and M. Sinn},
+  title     = {Approximate query processing---a survey},
+  booktitle = {Encyclopedia of Database Systems},
+  pages     = {27--34},
+  year      = {2003}
+}
+
+% --------------------------------------------------------------------
+% TEXT / IR
+% --------------------------------------------------------------------
+
+@article{salton1975,
+  author    = {G. Salton and A. Wong and C. S. Yang},
+  title     = {A vector space model for automatic indexing},
+  journal   = {Communications of the ACM},
+  volume    = {18},
+  number    = {11},
+  pages     = {613--620},
+  year      = {1975}
+}
+
+@article{bm25,
+  author    = {S. Robertson and H. Zaragoza},
+  title     = {The probabilistic relevance framework: {BM25} and beyond},
+  journal   = {Foundations and Trends in Information Retrieval},
+  volume    = {3},
+  number    = {4},
+  pages     = {333--389},
+  year      = {2009}
+}
+
+@article{bm25f,
+  author    = {S. Robertson and H. Zaragoza and M. Taylor},
+  title     = {{Simple} {BM25} extension to multiple weighted fields},
+  journal   = {CIKM},
+  pages     = {42--49},
+  year      = {2004}
+}
+
+% --------------------------------------------------------------------
+% EMBEDDING MODELS
+% --------------------------------------------------------------------
+
+@inproceedings{mikolov2013,
+  author    = {T. Mikolov and I. Sutskever and K. Chen and G. Corrado and J. Dean},
+  title     = {Distributed representations of words and phrases and their compositionality},
+  booktitle = {NeurIPS},
+  year      = {2013}
+}
+
+@inproceedings{pennington2014glove,
+  author    = {J. Pennington and R. Socher and C. D. Manning},
+  title     = {{GloVe}: Global vectors for word representation},
+  booktitle = {EMNLP},
+  year      = {2014}
+}
+
+@inproceedings{vaswani2017attention,
+  author    = {A. Vaswani and N. Shazeer and N. Parmar and J. Uszkoreit and L. Jones and A. N. Gomez and L. Kaiser and I. Polosukhin},
+  title     = {Attention is all you need},
+  booktitle = {NeurIPS},
+  year      = {2017}
+}
+
+@inproceedings{devlin2019bert,
+  author    = {J. Devlin and M.-W. Chang and K. Lee and K. Toutanova},
+  title     = {{BERT}: Pre-training of deep bidirectional transformers for language understanding},
+  booktitle = {NAACL},
+  year      = {2019}
+}
+
+@inproceedings{reimers2019,
+  author    = {N. Reimers and I. Gurevych},
+  title     = {Sentence-{BERT}: Sentence embeddings using {Siamese} {BERT}-networks},
+  booktitle = {EMNLP-IJCNLP},
+  year      = {2019}
+}
+
+@inproceedings{radford2021clip,
+  author    = {A. Radford and J. W. Kim and C. Hallacy and A. Ramesh and G. Goh and S. Agarwal and G. Sastry and A. Askell and P. Mishkin and J. Clark and G. Krueger and I. Sutskever},
+  title     = {Learning transferable visual models from natural language supervision},
+  booktitle = {ICML},
+  year      = {2021}
+}
+
+@article{lowe2004sift,
+  author    = {D. G. Lowe},
+  title     = {Distinctive image features from scale-invariant keypoints},
+  journal   = {International Journal of Computer Vision},
+  volume    = {60},
+  number    = {2},
+  pages     = {91--110},
+  year      = {2004}
+}
+
+% --------------------------------------------------------------------
+% APPROXIMATE NEAREST-NEIGHBOR / VECTOR INDEXES
+% --------------------------------------------------------------------
+
+@article{indyk1998lsh,
+  author    = {P. Indyk and R. Motwani},
+  title     = {Approximate nearest neighbors: Towards removing the curse of dimensionality},
+  journal   = {STOC},
+  pages     = {604--613},
+  year      = {1998}
+}
+
+@article{jegou2010pq,
+  author    = {H. J{\'e}gou and M. Douze and C. Schmid},
+  title     = {Product quantization for nearest neighbor search},
+  journal   = {IEEE TPAMI},
+  volume    = {33},
+  number    = {1},
+  pages     = {117--128},
+  year      = {2010}
+}
+
+@article{johnson2019faiss,
+  author    = {J. Johnson and M. Douze and H. J{\'e}gou},
+  title     = {Billion-scale similarity search with {GPUs}},
+  journal   = {IEEE TKDE},
+  volume    = {31},
+  pages     = {109--122},
+  year      = {2019}
+}
+
+@article{hnsw,
+  author    = {Y. A. Malkov and D. A. Yashunin},
+  title     = {Efficient and robust approximate nearest neighbor search using hierarchical navigable small world graphs},
+  journal   = {IEEE TPAMI},
+  volume    = {42},
+  number    = {4},
+  pages     = {824--836},
+  year      = {2020}
+}
+
+@inproceedings{subramanya2019diskann,
+  author    = {S. J. Subramanya and R. Kervadec and H. V. Simhadri and R. Krishnaswamy and G. Agrawal and A. Arbit and J. Mohoney and A. Y. Suh},
+  title     = {{DiskANN}: {Fast} accurate billion-point nearest neighbor search on a single node},
+  booktitle = {NeurIPS},
+  year      = {2019}
+}
+
+@inproceedings{guo2020diskann,
+  author    = {R. Guo and P. Simendu and K. S. Kumar and K. S. M. R. Yuxin and S. Q. L. Wen and A. Knight and A. Khan and A. Jermstad and H. V. Simhadri and R. Krishnaswamy},
+  title     = {{DiskANN}: Scaling {ANN} search to a billion points on a single machine},
+  booktitle = {NeurIPS},
+  year      = {2020}
+}
+
+@inproceedings{sun2020scann,
+  author    = {S. Sun and R. Liu and H. Yu and S. Teng and S. Mirrokni and L. Hong},
+  title     = {{ScaNN}: Efficient vector similarity search using {GPU}-aware memory and graph traversal},
+  booktitle = {NeurIPS},
+  year      = {2020}
+}
+
+@article{babenko2016mp,
+  author    = {A. Babenko and V. Lempitsky},
+  title     = {Efficient indexing of billion-scale datasets of deep descriptors for large-scale image retrieval},
+  journal   = {IEEE TPAMI},
+  volume    = {38},
+  number    = {10},
+  pages     = {1966--1980},
+  year      = {2016}
+}
+
+% --------------------------------------------------------------------
+% VECTOR DATABASES (purpose-built / hybrid)
+% --------------------------------------------------------------------
+
+@inproceedings{wang2021milvus,
+  author    = {J. Wang and S. Yi and R. Gu and Z. Wei and Y. Gu and Y. Che and H. Wu and L. Wang and C. Feng and Z. Xu and others},
+  title     = {{Milvus}: {A} purpose-built vector data management system},
+  booktitle = {SIGMOD},
+  pages     = {2614--2627},
+  year      = {2021}
+}
+
+@inproceedings{wei2024singlestore,
+  author    = {Q. Wei and B. J. L. W. Zhou and J. Y. Oh and others},
+  title     = {{SingleStore-V}: {An} integrated vector database system in {SingleStore}},
+  booktitle = {VLDB},
+  year      = {2024}
+}
+
+@inproceedings{jiang2024manu,
+  author    = {C. Jiang and Y. Li and J. Chen and others},
+  title     = {{Manu}: A cloud-native vector database management system},
+  booktitle = {VLDB},
+  year      = {2022}
+}
+
+@inproceedings{bigvectorbench2025,
+  author    = {{BenchCouncil}},
+  title     = {{BigVectorBench}: {A} benchmark for vector search in modern database systems},
+  booktitle = {SIGMOD},
+  year      = {2025}
+}
+
+% --------------------------------------------------------------------
+% FILTERED / MULTI-ATTRIBUTE / HYBRID VECTOR SEARCH
+% --------------------------------------------------------------------
+
+@inproceedings{acorn2022,
+  author    = {S. Gollapudi and N. Karia and V. Sivashankar and R. Krishnaswamy and N. Begwani and S. Raz and Y. Lin and Y. Malkov and M. Hosein and D. Yashunin},
+  title     = {Filtered-{DiskANN}: Graph algorithms for approximate nearest neighbor search with filters},
+  booktitle = {WWW},
+  year      = {2022}
+}
+
+@inproceedings{zuo2024serf,
+  author    = {C. Zuo and M. Qiao and W. Zhou and F. Li and D. Deng},
+  title     = {{SeRF}: Segment graph for range-filtering approximate nearest neighbor search},
+  booktitle = {SIGMOD},
+  year      = {2024}
+}
+
+@inproceedings{xu2025irangegraph,
+  author    = {Y. Xu and J. Gao and Y. Gou and C. Long and C. S. Jensen},
+  title     = {{iRangeGraph}: Improvising range-dedicated graphs for range-filtering nearest neighbor search},
+  booktitle = {SIGMOD},
+  year      = {2025}
+}
+
+@inproceedings{sehgal2025navix,
+  author    = {A. Sehgal and others},
+  title     = {{NaviX}: {A} unified engine for hybrid vector-relational query processing},
+  booktitle = {VLDB},
+  year      = {2025}
+}
+
+@article{marcus2024curator,
+  author    = {R. Marcus and R. Krishnaswamy and M. G. Madden and M. Shard and others},
+  title     = {{Curator}: Efficient vector search with low-selectivity filters},
+  journal   = {VLDB},
+  year      = {2024}
+}
+
+@article{lin2024fafnir,
+  author    = {Y. Lin and others},
+  title     = {{FAFNIR}: Multi-attribute filtered approximate nearest neighbor search},
+  journal   = {SIGMOD},
+  year      = {2024}
+}
+
+% --------------------------------------------------------------------
+% CBO / STATISTICS / LEARNED INDEXES
+% --------------------------------------------------------------------
+
+@article{dalvi2007,
+  author    = {N. Dalvi and D. Suciu},
+  title     = {Efficient query evaluation on probabilistic databases},
+  journal   = {VLDB Journal},
+  volume    = {16},
+  number    = {4},
+  pages     = {523--544},
+  year      = {2007}
+}
+
+@inproceedings{kraska2018,
+  author    = {T. Kraska and A. Beutel and E. H. Chi and J. Dean and N. Polyzotis},
+  title     = {The case for learned index structures},
+  booktitle = {SIGMOD},
+  year      = {2018}
+}
+
+@inproceedings{leis2015cardinality,
+  author    = {V. Leis and A. Gubichev and A. Mirchev and P. Boncz and A. Kemper and T. Neumann},
+  title     = {How good are query optimizers, really?},
+  booktitle = {VLDB},
+  pages     = {204--215},
+  year      = {2015}
+}
+
+@inproceedings{wu2018sampleseek,
+  author    = {W. Wu and J. M. Hellerstein and A. Ganapathi and S. Madden},
+  title     = {{Sample+Seek}: {A} framework for budgeted query evaluation},
+  booktitle = {VLDB},
+  pages     = {1637--1648},
+  year      = {2018}
+}
+
+@inproceedings{kim2026exqutor,
+  author    = {J. Kim and others},
+  title     = {{Exqutor}: Cardinality estimation for vector similarity joins using {HNSW}},
+  booktitle = {SIGMOD},
+  year      = {2026}
+}
+
+% --------------------------------------------------------------------
+% LLM / AGENTS / MEMORY
+% --------------------------------------------------------------------
+
+@inproceedings{yao2022react,
+  author    = {S. Yao and J. Zhao and D. Yu and N. Du and I. Shafran and K. R. Narasimhan and Y. Cao},
+  title     = {{ReAct}: Synergizing reasoning and acting in language models},
+  booktitle = {ICLR},
+  year      = {2023}
+}
+
+@inproceedings{park2023generative,
+  author    = {J. S. Park and J. C. O'Brien and C. J. Cai and M. R. Morris and P. Liang and M. S. Bernstein},
+  title     = {Generative agents: Interactive simulacra of human behavior},
+  booktitle = {UIST},
+  year      = {2023}
+}
+
+@inproceedings{packer2024memgpt,
+  author    = {C. Packer and S. Wooders and K. Lin and V. Fang and S. Shroff and P. Liang and A. Hashimoto},
+  title     = {{MemGPT}: Towards llms as operating systems},
+  booktitle = {ICLR},
+  year      = {2024}
+}
+
+@misc{mem0,
+  author       = {{Mem0 Team}},
+  title        = {{Mem0}: A memory layer for {LLM} applications},
+  year         = {2024},
+  howpublished = {\url{https://mem0.ai}}
+}
+
+@misc{letta,
+  author       = {{Letta Team}},
+  title        = {{Letta}: Stateful agents with memory},
+  year         = {2024},
+  howpublished = {\url{https://www.letta.com}}
+}
+
+% --------------------------------------------------------------------
+% END
+% --------------------------------------------------------------------
+
+@book{abiteboul1995foundations,
+  author    = {Serge Abiteboul and Richard Hull and Victor Vianu},
+  title     = {Foundations of Databases},
+  publisher = {Addison-Wesley},
+  year      = {1995}
+}

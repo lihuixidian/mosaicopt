@@ -1,0 +1,251 @@
+\begin{thebibliography}{10}
+
+\bibitem{bigvectorbench2025}
+{BenchCouncil}.
+\newblock {BigVectorBench}: {A} benchmark for vector search in modern database
+  systems.
+\newblock In {\em SIGMOD}, 2025.
+
+\bibitem{chaudhuri1998optimization}
+S.~Chaudhuri.
+\newblock An overview of query optimization in relational systems.
+\newblock {\em ACM SIGMOD Record}, 27(2):34--43, 1998.
+
+\bibitem{chaudhuri2003approximate}
+S.~Chaudhuri, B.~Kang, G.~Shah, and M.~Sinn.
+\newblock Approximate query processing---a survey.
+\newblock In {\em Encyclopedia of Database Systems}, pages 27--34, 2003.
+
+\bibitem{codd1970}
+E.~F. Codd.
+\newblock A relational model of data for large shared data banks.
+\newblock {\em Communications of the ACM}, 13(6):377--387, 1970.
+
+\bibitem{dalvi2007}
+N.~Dalvi and D.~Suciu.
+\newblock Efficient query evaluation on probabilistic databases.
+\newblock {\em VLDB Journal}, 16(4):523--544, 2007.
+
+\bibitem{devlin2019bert}
+J.~Devlin, M.-W. Chang, K.~Lee, and K.~Toutanova.
+\newblock {BERT}: Pre-training of deep bidirectional transformers for language
+  understanding.
+\newblock In {\em NAACL}, 2019.
+
+\bibitem{acorn2022}
+S.~Gollapudi, N.~Karia, V.~Sivashankar, R.~Krishnaswamy, N.~Begwani, S.~Raz,
+  Y.~Lin, Y.~Malkov, M.~Hosein, and D.~Yashunin.
+\newblock Filtered-{DiskANN}: Graph algorithms for approximate nearest neighbor
+  search with filters.
+\newblock In {\em WWW}, 2022.
+
+\bibitem{graefe1994}
+G.~Graefe.
+\newblock Volcano--an extensible and parallel query evaluation system.
+\newblock In {\em IEEE TKDE}, 1994.
+
+\bibitem{graefe1995}
+G.~Graefe.
+\newblock The cascades framework for query optimization.
+\newblock {\em IEEE Data Engineering Bulletin}, 18(3):19--29, 1995.
+
+\bibitem{graefe2011}
+G.~Graefe, W.~Guy, H.~S. Bunker, R.~L.~Y. Kim, S.~P. Saurabh, and V.~Vaishnav.
+\newblock Query optimization through the looking glass.
+\newblock {\em IEEE Data Engineering Bulletin}, 34(1):11--19, 2011.
+
+\bibitem{guo2020diskann}
+R.~Guo, P.~Simendu, K.~S. Kumar, K.~S. M.~R. Yuxin, S.~Q.~L. Wen, A.~Knight,
+  A.~Khan, A.~Jermstad, H.~V. Simhadri, and R.~Krishnaswamy.
+\newblock {DiskANN}: Scaling {ANN} search to a billion points on a single
+  machine.
+\newblock In {\em NeurIPS}, 2020.
+
+\bibitem{hellerstein2007adaptive}
+J.~M. Hellerstein, M.~J. Franklin, S.~Chandrasekaran, A.~Deshpande, D.~Hildrum,
+  S.~Madden, V.~Raman, and M.~A. Shah.
+\newblock Adaptive query processing: Technology in evolution.
+\newblock {\em IEEE Data Engineering Bulletin}, 23(2):7--18, 2000.
+
+\bibitem{hellerstein1995}
+J.~M. Hellerstein and M.~Stonebraker.
+\newblock Predicate migration: Optimizing queries with expensive predicates.
+\newblock {\em ACM SIGMOD Record}, 24(2):267--276, 1995.
+
+\bibitem{indyk1998lsh}
+P.~Indyk and R.~Motwani.
+\newblock Approximate nearest neighbors: Towards removing the curse of
+  dimensionality.
+\newblock {\em STOC}, pages 604--613, 1998.
+
+\bibitem{jegou2010pq}
+H.~J{\'e}gou, M.~Douze, and C.~Schmid.
+\newblock Product quantization for nearest neighbor search.
+\newblock {\em IEEE TPAMI}, 33(1):117--128, 2010.
+
+\bibitem{jiang2024manu}
+C.~Jiang, Y.~Li, J.~Chen, et~al.
+\newblock {Manu}: A cloud-native vector database management system.
+\newblock In {\em VLDB}, 2022.
+
+\bibitem{johnson2019faiss}
+J.~Johnson, M.~Douze, and H.~J{\'e}gou.
+\newblock Billion-scale similarity search with {GPUs}.
+\newblock {\em IEEE TKDE}, 31:109--122, 2019.
+
+\bibitem{kim2026exqutor}
+J.~Kim et~al.
+\newblock {Exqutor}: Cardinality estimation for vector similarity joins using
+  {HNSW}.
+\newblock In {\em SIGMOD}, 2026.
+
+\bibitem{kraska2018}
+T.~Kraska, A.~Beutel, E.~H. Chi, J.~Dean, and N.~Polyzotis.
+\newblock The case for learned index structures.
+\newblock In {\em SIGMOD}, 2018.
+
+\bibitem{leis2015cardinality}
+V.~Leis, A.~Gubichev, A.~Mirchev, P.~Boncz, A.~Kemper, and T.~Neumann.
+\newblock How good are query optimizers, really?
+\newblock In {\em VLDB}, pages 204--215, 2015.
+
+\bibitem{letta}
+{Letta Team}.
+\newblock {Letta}: Stateful agents with memory.
+\newblock \url{https://www.letta.com}, 2024.
+
+\bibitem{lin2024fafnir}
+Y.~Lin et~al.
+\newblock {FAFNIR}: Multi-attribute filtered approximate nearest neighbor
+  search.
+\newblock {\em SIGMOD}, 2024.
+
+\bibitem{lowe2004sift}
+D.~G. Lowe.
+\newblock Distinctive image features from scale-invariant keypoints.
+\newblock {\em International Journal of Computer Vision}, 60(2):91--110, 2004.
+
+\bibitem{hnsw}
+Y.~A. Malkov and D.~A. Yashunin.
+\newblock Efficient and robust approximate nearest neighbor search using
+  hierarchical navigable small world graphs.
+\newblock {\em IEEE TPAMI}, 42(4):824--836, 2020.
+
+\bibitem{marcus2024curator}
+R.~Marcus, R.~Krishnaswamy, M.~G. Madden, M.~Shard, et~al.
+\newblock {Curator}: Efficient vector search with low-selectivity filters.
+\newblock {\em VLDB}, 2024.
+
+\bibitem{mem0}
+{Mem0 Team}.
+\newblock {Mem0}: A memory layer for {LLM} applications.
+\newblock \url{https://mem0.ai}, 2024.
+
+\bibitem{mikolov2013}
+T.~Mikolov, I.~Sutskever, K.~Chen, G.~Corrado, and J.~Dean.
+\newblock Distributed representations of words and phrases and their
+  compositionality.
+\newblock In {\em NeurIPS}, 2013.
+
+\bibitem{packer2024memgpt}
+C.~Packer, S.~Wooders, K.~Lin, V.~Fang, S.~Shroff, P.~Liang, and A.~Hashimoto.
+\newblock {MemGPT}: Towards llms as operating systems.
+\newblock In {\em ICLR}, 2024.
+
+\bibitem{park2023generative}
+J.~S. Park, J.~C. O'Brien, C.~J. Cai, M.~R. Morris, P.~Liang, and M.~S.
+  Bernstein.
+\newblock Generative agents: Interactive simulacra of human behavior.
+\newblock In {\em UIST}, 2023.
+
+\bibitem{pennington2014glove}
+J.~Pennington, R.~Socher, and C.~D. Manning.
+\newblock {GloVe}: Global vectors for word representation.
+\newblock In {\em EMNLP}, 2014.
+
+\bibitem{reimers2019}
+N.~Reimers and I.~Gurevych.
+\newblock Sentence-{BERT}: Sentence embeddings using {Siamese} {BERT}-networks.
+\newblock In {\em EMNLP-IJCNLP}, 2019.
+
+\bibitem{bm25}
+S.~Robertson and H.~Zaragoza.
+\newblock The probabilistic relevance framework: {BM25} and beyond.
+\newblock {\em Foundations and Trends in Information Retrieval}, 3(4):333--389,
+  2009.
+
+\bibitem{bm25f}
+S.~Robertson, H.~Zaragoza, and M.~Taylor.
+\newblock {Simple} {BM25} extension to multiple weighted fields.
+\newblock {\em CIKM}, pages 42--49, 2004.
+
+\bibitem{salton1975}
+G.~Salton, A.~Wong, and C.~S. Yang.
+\newblock A vector space model for automatic indexing.
+\newblock {\em Communications of the ACM}, 18(11):613--620, 1975.
+
+\bibitem{sehgal2025navix}
+A.~Sehgal et~al.
+\newblock {NaviX}: {A} unified engine for hybrid vector-relational query
+  processing.
+\newblock In {\em VLDB}, 2025.
+
+\bibitem{selinger1979}
+P.~G. Selinger, M.~M. Astrahan, D.~C. Chamberlin, R.~A. Lorie, and T.~G. Price.
+\newblock Access path selection in a relational database management system.
+\newblock In {\em SIGMOD}, pages 23--34, 1979.
+
+\bibitem{subramanya2019diskann}
+S.~J. Subramanya, R.~Kervadec, H.~V. Simhadri, R.~Krishnaswamy, G.~Agrawal,
+  A.~Arbit, J.~Mohoney, and A.~Y. Suh.
+\newblock {DiskANN}: {Fast} accurate billion-point nearest neighbor search on a
+  single node.
+\newblock In {\em NeurIPS}, 2019.
+
+\bibitem{sun2020scann}
+S.~Sun, R.~Liu, H.~Yu, S.~Teng, S.~Mirrokni, and L.~Hong.
+\newblock {ScaNN}: Efficient vector similarity search using {GPU}-aware memory
+  and graph traversal.
+\newblock In {\em NeurIPS}, 2020.
+
+\bibitem{vaswani2017attention}
+A.~Vaswani, N.~Shazeer, N.~Parmar, J.~Uszkoreit, L.~Jones, A.~N. Gomez,
+  L.~Kaiser, and I.~Polosukhin.
+\newblock Attention is all you need.
+\newblock In {\em NeurIPS}, 2017.
+
+\bibitem{wang2021milvus}
+J.~Wang, S.~Yi, R.~Gu, Z.~Wei, Y.~Gu, Y.~Che, H.~Wu, L.~Wang, C.~Feng, Z.~Xu,
+  et~al.
+\newblock {Milvus}: {A} purpose-built vector data management system.
+\newblock In {\em SIGMOD}, pages 2614--2627, 2021.
+
+\bibitem{wei2024singlestore}
+Q.~Wei, B.~J. L.~W. Zhou, J.~Y. Oh, et~al.
+\newblock {SingleStore-V}: {An} integrated vector database system in
+  {SingleStore}.
+\newblock In {\em VLDB}, 2024.
+
+\bibitem{wu2018sampleseek}
+W.~Wu, J.~M. Hellerstein, A.~Ganapathi, and S.~Madden.
+\newblock {Sample+Seek}: {A} framework for budgeted query evaluation.
+\newblock In {\em VLDB}, pages 1637--1648, 2018.
+
+\bibitem{xu2025irangegraph}
+Y.~Xu, J.~Gao, Y.~Gou, C.~Long, and C.~S. Jensen.
+\newblock {iRangeGraph}: Improvising range-dedicated graphs for range-filtering
+  nearest neighbor search.
+\newblock In {\em SIGMOD}, 2025.
+
+\bibitem{yao2022react}
+S.~Yao, J.~Zhao, D.~Yu, N.~Du, I.~Shafran, K.~R. Narasimhan, and Y.~Cao.
+\newblock {ReAct}: Synergizing reasoning and acting in language models.
+\newblock In {\em ICLR}, 2023.
+
+\bibitem{zuo2024serf}
+C.~Zuo, M.~Qiao, W.~Zhou, F.~Li, and D.~Deng.
+\newblock {SeRF}: Segment graph for range-filtering approximate nearest
+  neighbor search.
+\newblock In {\em SIGMOD}, 2024.
+
+\end{thebibliography}

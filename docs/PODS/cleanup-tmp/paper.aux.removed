@@ -1,0 +1,197 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\@writefile{toc}{\contentsline {section}{Abstract}{1}{section*.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction \& Motivation}{1}{section.1}\protected@file@percent }
+\newlabel{sec:intro}{{1}{1}{Introduction \& Motivation}{section.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Three-layer architecture of MosaicOpt: \emph  {application} (SQL \texttt  {ORDER BY} and \texttt  {LIMIT}, holding the fusion policy), \emph  {logical algebra} (the substrate contract including the new $\mu $ and $\Gamma $ operators, over which the equational theory is stated), and \emph  {physical algebra} (the engine implementation). The vector selection $\sigma _{\lVert V-q\rVert <\tau }$ is realized by the $H_{V,q,\tau }$ physical operator, whose concrete realization is an \emph  {ANN family} (HNSW, IVF, or brute-force linear scan); Section\nonbreakingspace \ref {sec:cbo} selects the strategy per query.}}{2}{figure.caption.2}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:threelayer}{{1}{2}{Three-layer architecture of MosaicOpt: \emph {application} (SQL \texttt {ORDER BY} and \texttt {LIMIT}, holding the fusion policy), \emph {logical algebra} (the substrate contract including the new $\mu $ and $\Gamma $ operators, over which the equational theory is stated), and \emph {physical algebra} (the engine implementation). The vector selection $\sigma _{\lVert V-q\rVert <\tau }$ is realized by the $H_{V,q,\tau }$ physical operator, whose concrete realization is an \emph {ANN family} (HNSW, IVF, or brute-force linear scan); Section~\ref {sec:cbo} selects the strategy per query}{figure.caption.2}{}}
+\citation{codd1970}
+\citation{selinger1979}
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.1}Why algebraic foundation?}{3}{subsection.1.1}\protected@file@percent }
+\newlabel{sec:intro:algebra}{{1.1}{3}{Why algebraic foundation?}{subsection.1.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.2}Mathematical support for Agentic database development}{3}{subsection.1.2}\protected@file@percent }
+\newlabel{sec:intro:support}{{1.2}{3}{Mathematical support for Agentic database development}{subsection.1.2}{}}
+\citation{codd1970}
+\citation{selinger1979}
+\citation{graefe1994}
+\citation{graefe1995}
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.3}Data substrate for Agentic applications}{4}{subsection.1.3}\protected@file@percent }
+\newlabel{sec:intro:substrate}{{1.3}{4}{Data substrate for Agentic applications}{subsection.1.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.4}Contributions}{4}{subsection.1.4}\protected@file@percent }
+\newlabel{sec:contrib}{{1.4}{4}{Contributions}{subsection.1.4}{}}
+\citation{salton1975}
+\citation{robertson1995}
+\citation{mikolov2013,reimers2019}
+\citation{malkov2018}
+\@writefile{toc}{\contentsline {section}{\numberline {2}Extended Algebra}{5}{section.2}\protected@file@percent }
+\newlabel{sec:algebra}{{2}{5}{Extended Algebra}{section.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Background}{5}{subsection.2.1}\protected@file@percent }
+\newlabel{sec:background}{{2.1}{5}{Background}{subsection.2.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Logical/physical separation}{5}{subsection.2.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Multi-path recall (a) versus the MosaicOpt algebraic approach (b). In (a) four independent channels produce ranked candidate lists and application-level score fusion decides the final ranking --- there is no equivalence relation over plans, so all optimization is heuristic. In (b) the user writes a single logical plan; the RBO enumerates equivalent rewrites under the equational theory, and the CBO picks a physical realization. The fusion policy is explicit in \texttt  {ORDER BY}.}}{6}{figure.caption.7}\protected@file@percent }
+\newlabel{fig:multipath}{{2}{6}{Multi-path recall (a) versus the MosaicOpt algebraic approach (b). In (a) four independent channels produce ranked candidate lists and application-level score fusion decides the final ranking --- there is no equivalence relation over plans, so all optimization is heuristic. In (b) the user writes a single logical plan; the RBO enumerates equivalent rewrites under the equational theory, and the CBO picks a physical realization. The fusion policy is explicit in \texttt {ORDER BY}}{figure.caption.7}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Logical operators of the extended algebra.}}{6}{table.caption.8}\protected@file@percent }
+\newlabel{tab:ops}{{1}{6}{Logical operators of the extended algebra}{table.caption.8}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Operator inventory}{6}{subsection.2.3}\protected@file@percent }
+\newlabel{def:bag}{{1}{6}{Bag semantics}{definition.1}{}}
+\citation{robertson1995}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}Predicate forms}{7}{subsection.2.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.5}Materialization: motivation, expressions, and semantics}{7}{subsection.2.5}\protected@file@percent }
+\newlabel{def:fresh}{{2}{7}{Fresh-name condition}{definition.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.6}Graph expansion}{7}{subsection.2.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.7}Example queries}{7}{subsection.2.7}\protected@file@percent }
+\newlabel{sec:example}{{2.7}{7}{Example queries}{subsection.2.7}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3}Equational Theory}{8}{section.3}\protected@file@percent }
+\newlabel{sec:equational}{{3}{8}{Equational Theory}{section.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Overview}{8}{subsection.3.1}\protected@file@percent }
+\newlabel{sec:equational:overview}{{3.1}{8}{Overview}{subsection.3.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Foundational axioms}{8}{subsection.3.2}\protected@file@percent }
+\newlabel{sec:equational:foundational}{{3.2}{8}{Foundational axioms}{subsection.3.2}{}}
+\newlabel{thm:m1}{{1}{8}{M1 --- Selection commutes with materialization on the materialized column}{theorem.1}{}}
+\newlabel{thm:m2}{{2}{8}{M2 --- Materialization is commutative}{theorem.2}{}}
+\newlabel{thm:m3}{{3}{9}{M3 --- Materialization through projection}{theorem.3}{}}
+\newlabel{thm:v1}{{4}{9}{V1 --- Vector selections on distinct columns commute}{theorem.4}{}}
+\newlabel{thm:j1}{{5}{9}{J1 --- Vector selection pushdown through join}{theorem.5}{}}
+\newlabel{thm:t1}{{6}{9}{T1 --- Limit after order equals top-$K$}{theorem.6}{}}
+\newlabel{thm:g1}{{7}{9}{G1 --- Selection pushdown through graph expansion}{theorem.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Derived identities}{9}{subsection.3.3}\protected@file@percent }
+\newlabel{sec:equational:derived}{{3.3}{9}{Derived identities}{subsection.3.3}{}}
+\citation{newman1942}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Non-identities and counterexamples}{10}{subsection.3.4}\protected@file@percent }
+\newlabel{sec:equational:nonident}{{3.4}{10}{Non-identities and counterexamples}{subsection.3.4}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.4.1}N1: Approximation breaks logical equivalence}{10}{subsubsection.3.4.1}\protected@file@percent }
+\newlabel{thm:n1}{{8}{10}{N1 --- ANN approximation breaks logical equivalence}{theorem.8}{}}
+\newlabel{ce:n1}{{1}{10}{}{counterexample.1}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.4.2}N2: Similarity join asymmetry}{10}{subsubsection.3.4.2}\protected@file@percent }
+\newlabel{thm:n2}{{9}{10}{N2 --- Similarity join asymmetry}{theorem.9}{}}
+\newlabel{ce:n2}{{2}{10}{}{counterexample.2}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.4.3}N3: Limit and order do not distribute over union}{10}{subsubsection.3.4.3}\protected@file@percent }
+\newlabel{thm:n3}{{10}{10}{N3 --- Limit and order do not distribute over union}{theorem.10}{}}
+\newlabel{ce:n3}{{3}{10}{}{counterexample.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.5}Convergent rewriting}{10}{subsection.3.5}\protected@file@percent }
+\newlabel{sec:equational:convergent}{{3.5}{10}{Convergent rewriting}{subsection.3.5}{}}
+\newlabel{thm:rbo-confluence}{{11}{10}{RBO Confluence}{theorem.11}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}SQL Surface and Rule-Based Optimization}{11}{section.4}\protected@file@percent }
+\newlabel{sec:sql}{{4}{11}{SQL Surface and Rule-Based Optimization}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Motivation: two equivalent surfaces}{11}{subsection.4.1}\protected@file@percent }
+\newlabel{sec:sql:motivation}{{4.1}{11}{Motivation: two equivalent surfaces}{subsection.4.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}DDL: vector type and indexes}{11}{subsection.4.2}\protected@file@percent }
+\newlabel{sec:sql:ddl}{{4.2}{11}{DDL: vector type and indexes}{subsection.4.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}WHERE: multi-modal predicates}{11}{subsection.4.3}\protected@file@percent }
+\newlabel{sec:sql:predicates}{{4.3}{11}{WHERE: multi-modal predicates}{subsection.4.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}Materialization via existing \texttt  {AS}}{12}{subsection.4.4}\protected@file@percent }
+\newlabel{sec:sql:materialization}{{4.4}{12}{Materialization via existing \texttt {AS}}{subsection.4.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.5}Graph expansion via recursive CTE}{12}{subsection.4.5}\protected@file@percent }
+\newlabel{sec:sql:graph}{{4.5}{12}{Graph expansion via recursive CTE}{subsection.4.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.6}Desugaring rules: SQL $\rightarrow $ algebra}{12}{subsection.4.6}\protected@file@percent }
+\newlabel{sec:sql:desugaring}{{4.6}{12}{Desugaring rules: SQL $\rightarrow $ algebra}{subsection.4.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.7}From algebra to RBO: role, transformations, plan space}{13}{subsection.4.7}\protected@file@percent }
+\newlabel{sec:rbo}{{4.7}{13}{From algebra to RBO: role, transformations, plan space}{subsection.4.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.8}RBO role}{13}{subsection.4.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.9}Example transformations}{13}{subsection.4.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.10}Plan space pruning}{14}{subsection.4.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.11}Plan space and RBO complexity}{14}{subsection.4.11}\protected@file@percent }
+\newlabel{sec:rbo:complexity}{{4.11}{14}{Plan space and RBO complexity}{subsection.4.11}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Cost Model, CBO, and Architecture}{14}{section.5}\protected@file@percent }
+\newlabel{sec:cbo}{{5}{14}{Cost Model, CBO, and Architecture}{section.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Physical operator inventory}{14}{subsection.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Cost dimensions}{14}{subsection.5.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Physical operators and the logical operators they implement.}}{15}{table.caption.9}\protected@file@percent }
+\newlabel{tab:phys}{{2}{15}{Physical operators and the logical operators they implement}{table.caption.9}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Logical-to-physical bridge}{15}{subsection.5.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Adaptive execution}{15}{subsection.5.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.5}Formal cost model and CBO complexity}{15}{subsection.5.5}\protected@file@percent }
+\newlabel{sec:cbo:complexity}{{5.5}{15}{Formal cost model and CBO complexity}{subsection.5.5}{}}
+\@writefile{toc}{\contentsline {paragraph}{Cost as a 4-tuple.}{15}{section*.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Per-operator cost expressions.}{15}{section*.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Total cost.}{15}{section*.12}\protected@file@percent }
+\citation{kraska2018}
+\@writefile{toc}{\contentsline {paragraph}{CBO complexity.}{16}{section*.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.6}Architectural implications: layers and pipeline}{16}{subsection.5.6}\protected@file@percent }
+\newlabel{sec:arch}{{5.6}{16}{Architectural implications: layers and pipeline}{subsection.5.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.7}Storage and the logical-to-physical bridge}{16}{subsection.5.7}\protected@file@percent }
+\newlabel{sec:arch:bridge}{{5.7}{16}{Storage and the logical-to-physical bridge}{subsection.5.7}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Logical-to-physical mapping table. The CBO's search is over the entries of this table, indexed by the operator's predicate form.}}{16}{table.caption.14}\protected@file@percent }
+\newlabel{tab:bridge}{{3}{16}{Logical-to-physical mapping table. The CBO's search is over the entries of this table, indexed by the operator's predicate form}{table.caption.14}{}}
+\citation{codd1970}
+\citation{selinger1979,graefe1994,graefe1995}
+\citation{thomasfischer1986}
+\citation{beech1989}
+\citation{tuzhilinclifford1990,snodgrass1995}
+\citation{fernandezsimeonwadler2000}
+\citation{newman1942}
+\citation{huet1980}
+\citation{terese2003}
+\citation{atzenitorlone1996}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.8}The optimizer pipeline}{17}{subsection.5.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6}Discussion}{17}{section.6}\protected@file@percent }
+\newlabel{sec:related}{{6}{17}{Discussion}{section.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.1}Related work}{17}{subsection.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Classical relational algebra.}{17}{section*.15}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Algebraic extensions of the relational model.}{17}{section*.16}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Equational theories in query optimization.}{17}{section*.17}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.2}Hybrid query algebra (recent)}{17}{subsection.6.2}\protected@file@percent }
+\citation{selinger1979}
+\citation{ibarakikameda1984}
+\citation{graefe1994}
+\citation{kraska2018}
+\bibcite{codd1970}{{1}{}{{}}{{}}}
+\bibcite{selinger1979}{{2}{}{{}}{{}}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.3}Open theoretical problems}{18}{subsection.6.3}\protected@file@percent }
+\newlabel{sec:open}{{6.3}{18}{Open theoretical problems}{subsection.6.3}{}}
+\newlabel{sec:open:complexity}{{6.3}{18}{Complexity of CBO}{section*.18}{}}
+\@writefile{toc}{\contentsline {paragraph}{Complexity of CBO.}{18}{section*.18}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Adaptive optimization.}{18}{section*.19}\protected@file@percent }
+\newlabel{sec:open:distributed}{{6.3}{18}{Distributed execution}{section*.20}{}}
+\@writefile{toc}{\contentsline {paragraph}{Distributed execution.}{18}{section*.20}\protected@file@percent }
+\newlabel{sec:open:write}{{6.3}{18}{Write paths and memory evolution}{section*.21}{}}
+\@writefile{toc}{\contentsline {paragraph}{Write paths and memory evolution.}{18}{section*.21}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.4}Limitations and out-of-scope}{18}{subsection.6.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{References}{18}{section*.23}\protected@file@percent }
+\bibcite{graefe1994}{{3}{}{{}}{{}}}
+\bibcite{graefe1995}{{4}{}{{}}{{}}}
+\bibcite{salton1975}{{5}{}{{}}{{}}}
+\bibcite{robertson1995}{{6}{}{{}}{{}}}
+\bibcite{mikolov2013}{{7}{}{{}}{{}}}
+\bibcite{reimers2019}{{8}{}{{}}{{}}}
+\bibcite{malkov2018}{{9}{}{{}}{{}}}
+\bibcite{kraska2018}{{10}{}{{}}{{}}}
+\bibcite{dalvi2007}{{11}{}{{}}{{}}}
+\bibcite{newman1942}{{12}{}{{}}{{}}}
+\bibcite{huet1980}{{13}{}{{}}{{}}}
+\bibcite{terese2003}{{14}{}{{}}{{}}}
+\bibcite{date2003}{{15}{}{{}}{{}}}
+\bibcite{ullman1988}{{16}{}{{}}{{}}}
+\bibcite{ibarakikameda1984}{{17}{}{{}}{{}}}
+\bibcite{pellenkoft1996}{{18}{}{{}}{{}}}
+\bibcite{thomasfischer1986}{{19}{}{{}}{{}}}
+\bibcite{beech1989}{{20}{}{{}}{{}}}
+\bibcite{tuzhilinclifford1990}{{21}{}{{}}{{}}}
+\bibcite{snodgrass1995}{{22}{}{{}}{{}}}
+\bibcite{fernandezsimeonwadler2000}{{23}{}{{}}{{}}}
+\bibcite{atzenitorlone1996}{{24}{}{{}}{{}}}
+\@writefile{toc}{\contentsline {section}{\numberline {A}Proofs of Foundational Results}{19}{appendix.A}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.1}Proofs of foundational axioms}{19}{subsection.A.1}\protected@file@percent }
+\newlabel{app:axioms}{{A.1}{19}{Proofs of foundational axioms}{subsection.A.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.2}Proof of RBO Confluence}{20}{subsection.A.2}\protected@file@percent }
+\newlabel{app:rbo-confluence}{{A.2}{20}{Proof of RBO Confluence}{subsection.A.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.3}Proof of CBO complexity bound}{20}{subsection.A.3}\protected@file@percent }
+\newlabel{app:cbo-complexity}{{A.3}{20}{Proof of CBO complexity bound}{subsection.A.3}{}}
+\newlabel{tocindent-1}{0pt}
+\newlabel{tocindent0}{0pt}
+\newlabel{tocindent1}{4.65pt}
+\newlabel{tocindent2}{16.14998pt}
+\newlabel{tocindent3}{18.34998pt}
+\newlabel{tocindent4}{0pt}
+\newlabel{tocindent5}{0pt}
+\providecommand\NAT@force@numbers{}\NAT@force@numbers
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.4}Reference tables}{21}{subsection.A.4}\protected@file@percent }
+\newlabel{app:tables}{{A.4}{21}{Reference tables}{subsection.A.4}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Symbolic cost vectors for core physical operators. $B(R)$: page count; $N$: cardinality; $p$: postings size; $s$: per-posting score cost; $\mathit  {ef}$, $M$: HNSW parameters.}}{21}{table.caption.24}\protected@file@percent }
+\newlabel{tab:cost-vectors}{{4}{21}{Symbolic cost vectors for core physical operators. $B(R)$: page count; $N$: cardinality; $p$: postings size; $s$: per-posting score cost; $\mathit {ef}$, $M$: HNSW parameters}{table.caption.24}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Logical-to-physical mapping table (appendix copy, no duplicate label).}}{21}{table.caption.25}\protected@file@percent }
+\newlabel{TotPages}{{21}{21}{}{page.21}{}}
+\gdef \@abspage@last{21}

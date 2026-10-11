@@ -1,0 +1,77 @@
+# Build artefacts and editor scratch
+__pycache__/
+*.pyc
+*.pyo
+*.so
+.mypy_cache/
+.ruff_cache/
+
+# Experiment outputs (large CSVs stay local; not pushed)
+prototype/results/*.csv
+prototype/results/*.txt
+prototype/results/*.json
+
+# Logs and scratch
+*.log
+prototype/pg_*.log
+prototype/e6_run*.log
+prototype/*.fls
+prototype/*.md
+prototype/*_err.txt
+prototype/*_out.txt
+prototype/*.txt
+prototype/scan_*.py
+
+# Old tex variants / scratch
+paper.tex
+prototype/*.py.bak
+
+# Heavy docs we don't push
+docs/SIGMOD/_*.py
+docs/SIGMOD/_*.log
+
+# Stuff at the repo root we don't want
+.mavis/
+MosaicOpt-Gen/
+notes/
+presentation/
+duckdb-main.zip
+duckdb-main/
+texput.*
+multimodal-*
+多模代数*
+
+# Loose top-level prototype scripts: paper-edit iteration tools
+# that aren't part of the core package. Only the core mosaicopt/
+# package and the two figure scripts are kept.
+prototype/add_*.py
+prototype/audit_*.py
+prototype/calibrate_*.py
+prototype/check_*.py
+prototype/compress_*.py
+prototype/count_*.py
+prototype/debug_*.py
+prototype/expand_*.py
+prototype/find_*.py
+prototype/fix_*.py
+prototype/inspect_*.py
+prototype/merge_*.py
+prototype/move_*.py
+prototype/paper_*.py
+prototype/patch_*.py
+prototype/print_*.py
+prototype/profile_*.py
+prototype/remove_*.py
+prototype/rename_*.py
+prototype/reorganize.py
+prototype/restore_*.py
+prototype/restructure_*.py
+prototype/run_e9*.py
+prototype/scan_*.py
+prototype/skip_*.py
+prototype/smoke_*.py
+prototype/summarize_*.py
+prototype/swap_*.py
+prototype/test_*.py
+prototype/trim_*.py
+prototype/plot_e1*.py

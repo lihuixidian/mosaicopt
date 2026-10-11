@@ -1,0 +1,133 @@
+This is BibTeX, Version 0.99e
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: sigconf-attached.aux
+Reallocating 'name_of_file' (item size: 1) to 21 items.
+The style file: ACM-Reference-Format.bst
+Reallocating 'name_of_file' (item size: 1) to 4 items.
+Reallocating 'singl_function' (item size: 4) to 100 items.
+Reallocating 'singl_function' (item size: 4) to 100 items.
+Reallocating 'wiz_functions' (item size: 4) to 6000 items.
+Database file #1: ref.bib
+Reallocating 'singl_function' (item size: 4) to 100 items.
+Reallocating 'wiz_functions' (item size: 4) to 9000 items.
+Reallocating 'glb_str_end' (item size: 4) to 20 items.
+Reallocating 'glb_str_ptr' (item size: 4) to 20 items.
+Reallocating 'global_strs' (item size: 1) to 4000000 items.
+Reallocating 'singl_function' (item size: 4) to 100 items.
+Warning--empty address in abiteboul1995foundations
+Warning--empty publisher in bigvectorbench2025
+Warning--empty address in bigvectorbench2025
+Warning--page numbers missing in both pages and numpages fields in bigvectorbench2025
+Warning--empty publisher in devlin2019bert
+Warning--empty address in devlin2019bert
+Warning--page numbers missing in both pages and numpages fields in devlin2019bert
+Warning--empty publisher in acorn2022
+Warning--empty address in acorn2022
+Warning--page numbers missing in both pages and numpages fields in acorn2022
+Warning--empty publisher in graefe1994
+Warning--empty address in graefe1994
+Warning--page numbers missing in both pages and numpages fields in graefe1994
+Warning--empty publisher in guo2020diskann
+Warning--empty address in guo2020diskann
+Warning--page numbers missing in both pages and numpages fields in guo2020diskann
+Warning--no number and no volume in indyk1998lsh
+Warning--empty publisher in jiang2024manu
+Warning--empty address in jiang2024manu
+Warning--page numbers missing in both pages and numpages fields in jiang2024manu
+Warning--empty publisher in kim2026exqutor
+Warning--empty address in kim2026exqutor
+Warning--page numbers missing in both pages and numpages fields in kim2026exqutor
+Warning--empty publisher in kraska2018
+Warning--empty address in kraska2018
+Warning--page numbers missing in both pages and numpages fields in kraska2018
+Warning--empty publisher in leis2015cardinality
+Warning--empty address in leis2015cardinality
+Warning--no number and no volume in lin2024fafnir
+Warning--page numbers missing in both pages and numpages fields in lin2024fafnir
+Warning--no number and no volume in marcus2024curator
+Warning--page numbers missing in both pages and numpages fields in marcus2024curator
+Warning--empty publisher in mikolov2013
+Warning--empty address in mikolov2013
+Warning--page numbers missing in both pages and numpages fields in mikolov2013
+Warning--empty publisher in packer2024memgpt
+Warning--empty address in packer2024memgpt
+Warning--page numbers missing in both pages and numpages fields in packer2024memgpt
+Warning--empty publisher in park2023generative
+Warning--empty address in park2023generative
+Warning--page numbers missing in both pages and numpages fields in park2023generative
+Warning--empty publisher in pennington2014glove
+Warning--empty address in pennington2014glove
+Warning--page numbers missing in both pages and numpages fields in pennington2014glove
+Warning--empty publisher in reimers2019
+Warning--empty address in reimers2019
+Warning--page numbers missing in both pages and numpages fields in reimers2019
+Warning--no number and no volume in bm25f
+Warning--empty publisher in sehgal2025navix
+Warning--empty address in sehgal2025navix
+Warning--page numbers missing in both pages and numpages fields in sehgal2025navix
+Warning--empty publisher in selinger1979
+Warning--empty address in selinger1979
+Warning--empty publisher in subramanya2019diskann
+Warning--empty address in subramanya2019diskann
+Warning--page numbers missing in both pages and numpages fields in subramanya2019diskann
+Warning--empty publisher in vaswani2017attention
+Warning--empty address in vaswani2017attention
+Warning--page numbers missing in both pages and numpages fields in vaswani2017attention
+Warning--empty publisher in wang2021milvus
+Warning--empty address in wang2021milvus
+Warning--empty publisher in wei2024singlestore
+Warning--empty address in wei2024singlestore
+Warning--page numbers missing in both pages and numpages fields in wei2024singlestore
+Warning--empty publisher in wu2018sampleseek
+Warning--empty address in wu2018sampleseek
+Warning--empty publisher in xu2025irangegraph
+Warning--empty address in xu2025irangegraph
+Warning--page numbers missing in both pages and numpages fields in xu2025irangegraph
+Warning--empty publisher in yao2022react
+Warning--empty address in yao2022react
+Warning--page numbers missing in both pages and numpages fields in yao2022react
+Warning--empty publisher in zuo2024serf
+Warning--empty address in zuo2024serf
+Warning--page numbers missing in both pages and numpages fields in zuo2024serf
+You've used 41 entries,
+            6273 wiz_defined-function locations,
+            1705 strings with 23824 characters,
+and the built_in function-call counts, 45975 in all, are:
+= -- 5336
+> -- 1693
+< -- 0
++ -- 583
+- -- 590
+* -- 3294
+:= -- 4509
+add.period$ -- 186
+call.type$ -- 41
+change.case$ -- 323
+chr.to.int$ -- 41
+cite$ -- 116
+duplicate$ -- 4202
+empty$ -- 2966
+format.name$ -- 714
+if$ -- 11138
+int.to.chr$ -- 2
+int.to.str$ -- 1
+missing$ -- 178
+newline$ -- 343
+num.names$ -- 287
+pop$ -- 1980
+preamble$ -- 1
+purify$ -- 651
+quote$ -- 0
+skip$ -- 1477
+stack$ -- 0
+substring$ -- 2917
+swap$ -- 312
+text.length$ -- 0
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 1019
+warning$ -- 75
+while$ -- 231
+width$ -- 0
+write$ -- 769
+(There were 75 warnings)

@@ -1,0 +1,5 @@
+id,subsystem,text,ts,d1,d2,score
+327,fault-tolerance,operator cost operator operator vector cost trace scan plan predicate,1784477023,0.43038058280944824,0.45599502325057983,0.43806493282318115
+531,fault-tolerance,fusion predicate rewrite optimizer optimizer recall graph latency vector throughput,1785064513,0.44340288639068604,0.42894381284713745,0.439065158367157
+662,fault-tolerance,vector rewrite rule rewrite fusion rule cursor trace memory hnsw,1783696034,0.4406445026397705,0.4759717285633087,0.45124268531799316
+782,fault-tolerance,rewrite rule subsystem materialization trace materialization index materialization join memory,1784952332,0.44952836632728577,0.5011273622512817,0.46500808000564575
