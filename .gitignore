@@ -1,4 +1,4 @@
-# Build artefacts and editor scratch
+# ---- Python build/cache ----
 __pycache__/
 *.pyc
 *.pyo
@@ -6,44 +6,58 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# Experiment outputs (large CSVs stay local; not pushed)
-prototype/results/*.csv
-prototype/results/*.txt
-prototype/results/*.json
+# ---- Experiment outputs and scratch ----
+prototype/results/
+results/
 
-# Logs and scratch
+# ---- Logs and debug artefacts ----
 *.log
-prototype/pg_*.log
-prototype/e6_run*.log
+*.err.txt
+*.out.txt
+*.txt
 prototype/*.fls
 prototype/*.md
-prototype/*_err.txt
-prototype/*_out.txt
-prototype/*.txt
+prototype/*.bak
+prototype/mosaicopt.7z
+prototype/mosaicopt.tar.gz
 prototype/scan_*.py
+prototype/gloskip_*
+prototype/glove_*
+prototype/sift_*
+prototype/glue_*
+prototype/gluskip_*
+prototype/siftskip_*
+prototype/glovefix_*
+prototype/siftfix_*
+prototype/glufix_*
+prototype/e1_v2_*
+prototype/fle2_*
+prototype/gloskip_*
+prototype/fle3_err.txt
+prototype/fle3_out.txt
+prototype/perf_v2_*
 
-# Old tex variants / scratch
+# ---- Old tex variant builds ----
 paper.tex
 prototype/*.py.bak
 
-# Heavy docs we don't push
+# ---- Heavy docs we don't push ----
+docs/PODS/
+docs/SIGMOD.zip
 docs/SIGMOD/_*.py
 docs/SIGMOD/_*.log
 
-# Stuff at the repo root we don't want
+# ---- Stuff at the repo root we don't want ----
 .mavis/
 MosaicOpt-Gen/
 notes/
 presentation/
-duckdb-main.zip
 duckdb-main/
 texput.*
 multimodal-*
 多模代数*
 
-# Loose top-level prototype scripts: paper-edit iteration tools
-# that aren't part of the core package. Only the core mosaicopt/
-# package and the two figure scripts are kept.
+# ---- Loose top-level prototype scripts: paper-edit iteration tools ----
 prototype/add_*.py
 prototype/audit_*.py
 prototype/calibrate_*.py
@@ -67,7 +81,6 @@ prototype/reorganize.py
 prototype/restore_*.py
 prototype/restructure_*.py
 prototype/run_e9*.py
-prototype/scan_*.py
 prototype/skip_*.py
 prototype/smoke_*.py
 prototype/summarize_*.py
@@ -75,3 +88,43 @@ prototype/swap_*.py
 prototype/test_*.py
 prototype/trim_*.py
 prototype/plot_e1*.py
+
+# ---- Documents: only the SIGCONF paper source + final figures ----
+docs/algebra.md
+docs/brief.md
+
+# docs/SIGMOD/ — keep sigconf-attached.tex, ref.bib, and the final figures
+docs/SIGMOD/*.aux
+docs/SIGMOD/*.bbl
+docs/SIGMOD/*.blg
+docs/SIGMOD/*.log
+docs/SIGMOD/*.out
+docs/SIGMOD/*.pdf
+docs/SIGMOD/*.zip
+docs/SIGMOD/*.tar.gz
+docs/SIGMOD/*.bak
+docs/SIGMOD/*.humanized.*
+docs/SIGMOD/*.md
+docs/SIGMOD/*.txt
+docs/SIGMOD/*-sigmod.*
+docs/SIGMOD/comment.cut
+docs/SIGMOD/compile_test_err.txt
+docs/SIGMOD/compile_test_out.txt
+docs/SIGMOD/humanize*.py
+docs/SIGMOD/render_figure1*.py
+docs/SIGMOD/p1*.txt
+docs/SIGMOD/p2*.txt
+docs/SIGMOD/pt*.txt
+docs/SIGMOD/figures/figure1_hd.png
+docs/SIGMOD/figures/page1_full.png
+docs/SIGMOD/figures/e1_qps.png
+docs/SIGMOD/figures/e1_recall.png
+docs/SIGMOD/figures/e2_qps.png
+docs/SIGMOD/figures/e2_recall.png
+docs/SIGMOD/figures/e3_qps.png
+docs/SIGMOD/figures/e3_recall.png
+docs/SIGMOD/figures/e4_qps.png
+docs/SIGMOD/figures/e4_recall.png
+docs/SIGMOD/figures/e4_scattered.png
+docs/SIGMOD/figures/e2_recall.png
+docs/SIGMOD/figures/e3_rbo_helps.png

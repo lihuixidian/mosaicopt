@@ -1,2 +1,0 @@
-n,k,latency_multi_modal_ms,latency_multi_path_ms,recall_multi_modal,recall_multi_path,ops_multi_modal,ops_multi_path
-1000,10,1.123800058849156,11.49109995458275,1.0,0.0,5,8

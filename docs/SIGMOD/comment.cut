@@ -1,6 +1,0 @@
-This draft builds on the project design brief
-(\texttt{docs/brief.md}). Sections~3--4 derive from the brief's
-algebra-design decisions. The authors thank the open-source
-communities of HNSW (\texttt{hnswlib}), Tantivy, DuckDB, and
-Cascades-style optimizers for the building blocks that make the
-prototype tractable.
