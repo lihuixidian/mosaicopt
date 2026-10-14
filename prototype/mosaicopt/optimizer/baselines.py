@@ -1456,8 +1456,28 @@ class PostFilterStyle:
                 hnsw = self._get_hnsw(vec_col, vp.column)
                 if hnsw is None:
                     # IndexManager decided the workload is too small
-                    # to justify HNSW build; fall back to the same
-                    # exact brute force the other baselines use.
+                    # to justify the HNSW build. **Warning**: this
+                    # branch falls back to a full-corpus brute-force
+                    # scan, which at n=1M allocates ~488 MB (one
+                    # ``diff`` array of shape (1M, 128) float32) and
+                    # can OOM on memory-constrained hosts (≤16 GB).
+                    #
+                    # After the SAVINGS_AT_REF_MS recalibration
+                    # (50 → 200 ms; see index_manager.py), the
+                    # break-even at n=1M is now 7 — i.e. any
+                    # ``workload_size ≥ 7`` (including the default
+                    # 16 used by all sweeps) builds the HNSW index,
+                    # so this fallback is now exercised only at
+                    # ``workload_size < 7`` (single-shot queries,
+                    # interactive REPL, etc.). For such cases the
+                    # caller is expected to pass a small ``n`` or
+                    # an explicit ``workload_size`` that justifies
+                    # the build via ``index_mgr.pre_build``.
+                    #
+                    # The brute-force fallback is preserved for
+                    # completeness (single-shot correctness over
+                    # 100% recall); only the OOM risk on n=1M with
+                    # ``workload_size < 7`` remains.
                     ids = brute_force_filtered_range(
                         self.store, vp.column, q_arr,
                         float(vp.threshold), surviving,
