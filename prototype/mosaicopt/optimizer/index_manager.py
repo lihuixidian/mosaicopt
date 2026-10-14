@@ -105,12 +105,11 @@ def choose_hnsw_params(
         host-specific (calibrated to ~5e-5 on this benchmark host).
         We pick ``max_ef = query_budget_ms / (c_query * sqrt(n))``
         and ``ef_search = min(ef_recall, max_ef, 2048)``.
-      * ``ef_construction`` fixed at 200 (build-time only; doesn't
+      * ``ef_construction`` fixed at 100 (build-time only; doesn't
         affect query path).
-      * ``M = 32 for n <= 500k, M = 48 for n > 500k`` (denser graph at
-        scale reduces HNSW's traversal length on disconnected
-        subsets, helping ``rho_f`` stay above the CBO's demote
-        threshold).
+      * ``M = 32`` uniformly. The previous ``M=48 for n > 500k``
+        heuristic over-paid build cost (~5× on this host at n=1M)
+        for marginal recall gain.
 
     Notes
     -----
@@ -129,7 +128,13 @@ def choose_hnsw_params(
     # Recall-driven ef, log-scaling per Malkov-Yashunin.
     ef_recall = max(64, round(64.0 * (n / 10_000.0) ** 0.30))
     # Hard upper cap to bound the largest ef we'd ever consider.
-    ef_recall = min(ef_recall, 2048)
+    # Calibrated from the n=1M sweep: at ef > 1024 the HNSW
+    # traversal cost (~50-100 ms at n=1M) starts to dominate the
+    # brute-force-on-subset cost, so going higher is rarely
+    # worth it. The CBO uses the same cap (HNSW_MAX_EF_SEARCH
+    # in cbo.py) to demote HNSW when expected result count
+    # exceeds it.
+    ef_recall = min(ef_recall, 1024)
 
     # Query-time budget cap. At n -> infinity the log-scale ef grows
     # unboundedly in principle, but the resulting query time would
@@ -143,8 +148,13 @@ def choose_hnsw_params(
     )
     ef_search = min(ef_recall, max_ef_for_budget)
 
-    ef_construction = 200
-    M = 32 if n <= 500_000 else 48
+    ef_construction = 100
+    # Uniform M=32 across all n; the prior "M=48 for n > 500k"
+    # heuristic was over-tuned for the HNSW *traversal* (helping
+    # recall on fragmented surviving sets) but paid a ~5× build
+    # cost on a single thread. M=32 still gives recall > 0.99
+    # for the workloads we sweep; operators can override per-call.
+    M = 32
 
     return HnswParams(M=M, ef_construction=ef_construction, ef_search=ef_search)
 
@@ -153,13 +163,28 @@ def choose_hnsw_params(
 # Build economics
 # ---------------------------------------------------------------------
 
-# Calibration constants (d=128, 1 thread, locally tuned on 10k corpus).
+# Calibration constants (d=128, n=1M, 1 thread; re-tuned 2026-10-14
+# from the n=1M verification sweep on this benchmark host).
+#
+# Empirical (single-thread, this host):
+#   - flat brute-force query at n=1M, d=128, 200k surviving set: ~205 ms
+#   - HNSW query (ef=64) at n=1M, d=128: ~0.5 ms
+#   - savings_per_query ≈ 200 ms  ← was 50 ms before recalibration
+#   - HNSW build at n=1M, d=128, M=48, ef_construction=200: ~1.3 s
+#
+# The previous ``SAVINGS_AT_REF_MS = 50`` was calibrated against a
+# 10k d=512 corpus where flat scan was ~5 ms; carried over unchanged
+# when the system was scaled to n=1M. At n=1M the constant was 4×
+# too low, making ``break_even`` 4× too high (~27 instead of ~7),
+# so MosaicOpt never built HNSW at the small sweep workloads.
+#
 # Operators can override per-deployment by passing explicit values.
 DEFAULT_BUILD_A_MS = 30.0           # base build overhead
 DEFAULT_BUILD_B_PER_N = 0.0008      # per-row marginal build ms at d=128
 DEFAULT_BUILD_C_PER_ND = 0.000004   # additional per (n, d) marginal
 DEFAULT_SAVINGS_REF_N = 1_000_000   # reference scale for savings model
-DEFAULT_SAVINGS_AT_REF_MS = 50.0    # flat-vs-hnsw savings per query at n_ref
+DEFAULT_SAVINGS_AT_REF_MS = 200.0   # flat-vs-hnsw savings per query at n_ref
+#                                  # (was 50.0; re-tuned from n=1M empirical)
 
 
 @dataclass

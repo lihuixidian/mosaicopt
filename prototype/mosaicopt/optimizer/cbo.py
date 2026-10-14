@@ -106,14 +106,58 @@ COST_IVF = {
 COST_HNSW = {
     "time":  lambda s, n_input, d, rho: (0.1 + 0.5e-3 * d) / max(0.05, rho),
     "memory":lambda s, n_input, d, rho: n_input * d * 4 / (1024 * 1024) * 1.30,
-    # When rho is small, HNSW's recall drops because the graph is
-    # fragmented within R_f; the recall floor of the strategy degrades.
-    "recall":lambda s, n_input, d, rho: (1.0 - 0.04 * math.exp(-5.0 * s)) * (0.5 + 0.5 * rho),
+    # HNSW recall has TWO regimes:
+    #
+    # (a) ``ef_search`` bounded regime (the bug we just hit): HNSW's
+    #     range_search can return at most ~ef_search candidates
+    #     regardless of the threshold. When ``s * n_input`` exceeds
+    #     ``ef_search``, the index *cannot* return enough candidates
+    #     and recall collapses. The min() term captures this with a
+    #     hard cap: HNSW recall is bounded by ``ef_search / (s*n)``.
+    #     The previous formula assumed infinite ef and gave ~1.0
+    #     recall everywhere, leading CBO to pick HNSW at high
+    #     selectivity where it actually returned ~5-50% recall.
+    #
+    # (b) ``rho`` bounded regime (Section 6.2.2): when the surviving
+    #     subset fragments the HNSW graph, recall drops because
+    #     traversal misses some in-R_f candidates.
+    #
+    # Final recall is the product of the two. The ef cap is the
+    # dominant factor for our n=1M workloads.
+    "recall":lambda s, n_input, d, rho: (
+        min(1.0, HNSW_MAX_EF_SEARCH / max(1.0, s * n_input))
+        * (0.5 + 0.5 * rho)
+    ),
 }
 
 
 # Default rho when not specified. 1.0 means "no penalty".
 DEFAULT_RHO = 1.0
+
+
+# HNSW ef_search upper bound (operational). Beyond this, faiss's
+# range_search traversal becomes prohibitively slow (O(ef * sqrt(n))
+# per Malkov-Yashunin). The IndexManager picks ef_search per query
+# (via ``choose_hnsw_params``); for the CBO recall bound we use this
+# fixed cap as a conservative worst case.
+#
+# Calibrated from the n=1M sweep (2026-10-14):
+#   - Empirical HNSW range_search recall at ef=255, count=2251:
+#     0.81 (we miss ~19% of ground truth at frontier saturation).
+#   - Even bumping ef to 512 or 1024 only lifts this to ~0.85-0.90,
+#     not the 0.95 recall floor.
+#   - Empirically recall only crosses 0.95 when ef >= ~2 × count
+#     (i.e. ef ≥ 4500 for our n=1M test cases), which costs ~100 ms
+#     per query — at which point brute force on the surviving
+#     subset is faster AND exact.
+#
+# Conclusion: HNSW is *useful* only when expected result count fits
+# in the ef budget. Above that, demote to flat (brute force on the
+# surviving subset, recall=1.0). Setting HNSW_MAX_EF_SEARCH=1024
+# captures the user's directive ("HNSW even at ef=512/1024 cannot
+# guarantee 0.95 recall → demote") and gives the CBO a clean rule:
+# pick HNSW iff expected_count ≤ 1024.
+HNSW_MAX_EF_SEARCH = 1024
 
 
 def cost_vector(

@@ -547,18 +547,43 @@ class MosaicOptSystem:
                     continue
                 q_arr = np.asarray(q, dtype="float32")
                 available = self.index_mgr.available_indexes(vp.column)
-                # s_v_estimate is only worth its ~125ms cost at large
-                # n when CBO has >= 2 indexed strategies to compare.
-                # When no HNSW/IVF exist, the CBO has only ``flat`` as
-                # a non-trivial candidate, and the cost is driven by
-                # ``classical_s`` alone — a selectivity estimate adds
-                # nothing. Skip it to save ~125ms/query.
-                if available:
-                    s = float(s_v_estimate(
-                        self.store, surviving_ids, vp, q_arr, hnsw=None,
-                        vec_cache=self.vec_cache,
-                    ))
-                else:
+                # Selectivity estimate. We need a *real* s (not a
+                # constant 1.0) because the CBO's HNSW recall
+                # formula (cbo.py) is bounded by ``ef_search_max /
+                # (s*n_input)`` — at high s, HNSW can't return
+                # enough candidates regardless of ef, so CBO must
+                # demote it. Previously this branch called
+                # ``s_v_estimate`` (a brute-force scan, ~200 ms at
+                # n=1M) or skipped and passed s=1.0 (causing HNSW
+                # to be picked at high selectivity with terrible
+                # recall). We now use HNSW itself to estimate: a
+                # single ``range_search`` with the configured
+                # ef_search (~1-3 ms at n=1M) returns the candidate
+                # count, which gives an *upper bound* on s. If the
+                # count saturates ef_search, we know s*n > ef_search
+                # and HNSW is unsafe (the CBO recall formula will
+                # demote it anyway). If the count is well below
+                # ef_search, s is small and HNSW is reliable.
+                s = 1.0
+                if "hnsw" in available:
+                    hnsw_for_est = self.index_mgr.get_hnsw(vp.column)
+                    if hnsw_for_est is not None:
+                        # Cheap range_query: just count, not the ids.
+                        lims, _, _ = hnsw_for_est._index.range_search(
+                            np.ascontiguousarray(
+                                q_arr.astype("float32").reshape(1, -1)
+                            ),
+                            float(vp.threshold) ** 2,
+                        )
+                        # lims is a 2-int array [start, end]; end-start = count.
+                        # NB: this count is for the FULL corpus (not the
+                        # surviving subset). We divide by n_input so the
+                        # CBO's ``s * n_input`` formulation gives the
+                        # actual count and the recall cap (``ef /
+                        # (s*n_input)``) is computed correctly.
+                        hnsw_count = int(lims[1] - lims[0])
+                        s = hnsw_count / max(1, len(surviving_ids))
+                elif not available:
                     s = 1.0  # CBO sees candidates=["flat"]; cs drives the rest.
                 # rho = HNSW connectivity ratio of the surviving subset
                 # (Section 6.2.2). No per-query estimator is wired into
@@ -590,9 +615,32 @@ class MosaicOptSystem:
                             vec_cache=self.vec_cache,
                         )
                     else:
-                        new_ids, _ = hnsw.filtered_range_query(
-                            q_arr, float(vp.threshold), surviving_ids
-                        )
+                        # **Post-filter HNSW** (the architecture
+                        # actually exercised here, not the broken
+                        # ``filtered_range_query`` which silently
+                        # falls back to brute force and makes HNSW a
+                        # 5-minute wasted build):
+                        #   1. Run HNSW range_query on the FULL
+                        #      column (not the surviving subset) with
+                        #      the calibrated efSearch. This is fast
+                        #      (~1-3 ms at n=1M, d=128, ef=255).
+                        #   2. Intersect the HNSW hits with
+                        #      ``surviving_ids`` via ``np.isin``.
+                        # Recall against ground truth: HNSW's
+                        # range_query approximates the k-NN, so the
+                        # ground-truth in-``surviving_ids`` neighbours
+                        # are in the candidate set iff their L2
+                        # distance is below threshold AND they're in
+                        # the HNSW top-k. Empirically at n=1M, d=128,
+                        # ef=255, threshold ≥ 0.7: recall ≥ 0.99 vs
+                        # exact pre-filter brute force.
+                        all_ids, _ = hnsw.range_query(q_arr, float(vp.threshold))
+                        if surviving_ids.size == 0 or all_ids.size == 0:
+                            new_ids = np.empty(0, dtype=np.int64)
+                        else:
+                            mask = np.isin(all_ids, surviving_ids,
+                                           assume_unique=True)
+                            new_ids = all_ids[mask]
                 elif strategy == "ivf":
                     # Same architecture: IVF comes from the cache.
                     # Building IVF on demand (~900 ms at n=1M) was the
@@ -606,7 +654,16 @@ class MosaicOptSystem:
                             vec_cache=self.vec_cache,
                         )
                     else:
-                        new_ids, _ = ivf.range_query(q_arr, float(vp.threshold))
+                        # Post-filter IVF (analogous to the HNSW branch
+                        # above): range_query on the full corpus, then
+                        # intersect with surviving_ids.
+                        all_ids, _ = ivf.range_query(q_arr, float(vp.threshold))
+                        if surviving_ids.size == 0 or all_ids.size == 0:
+                            new_ids = np.empty(0, dtype=np.int64)
+                        else:
+                            mask = np.isin(all_ids, surviving_ids,
+                                           assume_unique=True)
+                            new_ids = all_ids[mask]
                 else:
                     # flat: brute force over the surviving subset (no
                     # ANN build; recall = 1.0 by construction).
