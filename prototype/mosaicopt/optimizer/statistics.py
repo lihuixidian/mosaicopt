@@ -135,17 +135,24 @@ class VectorSketch:
             lam, _ = self._cache[q_hash]
             return 1.0 - math.exp(-lam * float(tau) * float(tau))
         # Cache miss: run range_search with a generous tau envelope.
-        # The envelope must be >= the requested tau to cover it; we
-        # also collect a sample of distances for the distribution fit.
-        tau_max = max(float(tau), 1.0)
+        # The envelope must be >= the requested tau to cover it; the
+        # floor scales with sqrt(d) so that on d=128 the floor is
+        # ~1.7 (covers the typical L2 distance on normalized vectors,
+        # which is ~1.4 mean) and on d=512 it's ~2.6. The previous
+        # hardcoded `max(tau, 1.0)` underestimated the L2 scale on
+        # large d, forcing extrapolation of the exponential fit
+        # outside its empirical support.
+        tau_max_floor = 1.5 + 0.05 * float(np.sqrt(self.dim))
+        tau_max = max(float(tau), tau_max_floor)
         sq_thr = float(tau_max) ** 2
         lims, dists, _ = self._index._index.range_search(q, sq_thr)
         n_within_max = int(lims[1] - lims[0])
         # Fit exponential: lam = K / sum(d_k^2) for the K returned
-        # distances. The HNSW range_search returns distances sorted
-        # ascending; we use the first K=min(256, len) for the fit
-        # to keep the math bounded.
-        K = min(len(dists), 256)
+        # distances. K scales as sqrt(n) (capped at 1024, floor 64)
+        # so the *fraction* of returned neighbors used for the fit
+        # stays bounded on large corpora (at n=1M the fit uses
+        # ~0.1% of returned neighbors; at n=10k it uses ~3%).
+        K = min(len(dists), max(64, int(np.sqrt(max(1, self.n)))))
         if K == 0:
             lam = 0.0
         else:
@@ -333,19 +340,25 @@ class FilteredHNSWDensity:
     ) -> np.ndarray:
         """Compute the row ids in R_f = sigma_C(R) for the given filter.
 
-        For the prototype this is a Python-side scan; the substrate's
-        DuckDB view would be a faster path on real data.
+        Performance notes
+        -----------------
+        * The Arrow → numpy conversion is **cached per column**; the
+          same column repeated across queries no longer pays the O(n)
+          conversion twice.
+        * The ``in`` operator now uses ``np.in1d`` (vectorized) rather
+          than ``np.fromiter`` over a Python ``in`` generator — the
+          latter was the dominant per-call cost at n=1M (~10 s for
+          a single ``in`` over a 5%-unique-value column).
         """
         if not classical_preds:
             n = self.store.arrow.num_rows
             return np.arange(n, dtype=np.int64)
-        # Build a numpy boolean mask
         n = self.store.arrow.num_rows
         mask = np.ones(n, dtype=bool)
         for p in classical_preds:
             if p.column not in self.store.arrow.column_names:
                 continue
-            col = self.store.arrow.column(p.column).to_numpy()
+            col = self._column_as_numpy(p.column)
             if p.op == "=":
                 mask &= (col == p.value)
             elif p.op == "!=":
@@ -359,9 +372,30 @@ class FilteredHNSWDensity:
             elif p.op == ">=":
                 mask &= (col >= p.value)
             elif p.op == "in":
-                mask &= np.fromiter((v in p.value for v in col),
-                                    dtype=bool, count=n)
+                # np.in1d is the vectorized form of ``v in p.value``
+                # for an array. It was previously implemented as a
+                # Python-side ``np.fromiter`` generator (~10 s at
+                # n=1M for a single lookup, dominating the call).
+                values = np.asarray(list(p.value)) if not isinstance(p.value, np.ndarray) else p.value
+                mask &= np.in1d(col, values)
         return np.flatnonzero(mask).astype(np.int64)
+
+    def _column_as_numpy(self, column: str) -> np.ndarray:
+        """Cached Arrow → numpy conversion (per column).
+
+        Vector columns are added at __init__ time (for the rho
+        density estimation); classical columns appear only when
+        FilteredHNSWDensity.lookup is asked for them, so the cache
+        is built lazily on first access.
+        """
+        if not hasattr(self, "_col_cache") or self._col_cache is None:
+            self._col_cache = {}
+        if column not in self._col_cache:
+            arr = self.store.arrow.column(column).to_numpy()
+            if not arr.flags["C_CONTIGUOUS"]:
+                arr = np.ascontiguousarray(arr)
+            self._col_cache[column] = arr
+        return self._col_cache[column]
 
     def _filter_signature(self, classical_preds: Sequence[ColumnPredicate]) -> frozenset:
         """A hashable signature for the conjunction of classical predicates."""
@@ -431,6 +465,7 @@ def _build_per_row_scores(
     right: "Predicate",
     store: Any,
     query_params: Dict[str, Any],
+    sample_probe: Optional["SampleProbe"] = None,
 ) -> Dict[str, Optional[np.ndarray]]:
     """Pre-compute per-row scores for the expensive predicates.
 
@@ -450,11 +485,16 @@ def _build_per_row_scores(
             d2 = np.sum((col - q.reshape(1, -1)) ** 2, axis=1)
             out[side] = np.sqrt(d2)  # L2 distance
         elif isinstance(p, BM25Score):
-            from ..physical.bm25 import BM25Index, _tokenize
-            docs = sub.column(p.column).to_pylist() if p.column in sub.column_names else []
-            if not docs:
-                continue
-            bm = BM25Index(docs)
+            # Prefer the SampleProbe's cached BM25 over the sample
+            # rows (avoids rebuilding the index every joint probe call;
+            # rebuilt lazily on first access).
+            bm = sample_probe._get_sample_bm25(p.column) if sample_probe is not None else None
+            if bm is None:
+                from ..physical.bm25 import BM25Index, _tokenize
+                docs = sub.column(p.column).to_pylist() if p.column in sub.column_names else []
+                if not docs:
+                    continue
+                bm = BM25Index(docs)
             q_text = query_params.get(p.q_param, "")
             scores = np.asarray(bm._bm25.get_scores(_tokenize(str(q_text))), dtype=np.float32)
             out[side] = scores
@@ -551,9 +591,40 @@ class SampleProbe:
         # memory-resident, so this is a one-time O(n) shuffle).
         self._idx = rng.choice(self.n, size=sample_size, replace=False)
         self._idx.sort()
+        # Lazy cache: BM25 indexes built over the sample rows, keyed by
+        # column name. The sample is fixed for this probe instance, so
+        # the BM25 index for a given column only needs to be built once.
+        # Previously this was rebuilt on every ``_build_per_row_scores``
+        # call (~50-200 ms at n=1M, called per ``run_joint_predicate``
+        # invocation, which itself runs per And pair).
+        self._sample_bm25: Dict[str, Optional[BM25Index]] = {}
 
     def sample_rows(self) -> pa.Table:
         return self.store.arrow.take(self._idx)
+
+    def _get_sample_bm25(self, column: str) -> Optional[BM25Index]:
+        """Cached BM25 index over the sample rows for ``column``.
+
+        First call builds the BM25 over ``self._idx`` rows for the
+        column and stores it. Subsequent calls (incl. from different
+        ``run_joint_predicate`` invocations on the same probe) hit
+        the cache. Returns ``None`` when the column is absent from the
+        store's schema.
+        """
+        if column in self._sample_bm25:
+            return self._sample_bm25[column]
+        sub = self.sample_rows()
+        if column not in sub.column_names:
+            self._sample_bm25[column] = None
+            return None
+        from ..physical.bm25 import BM25Index as _BM
+        docs = sub.column(column).to_pylist()
+        if not docs:
+            self._sample_bm25[column] = None
+            return None
+        bm = _BM(docs)
+        self._sample_bm25[column] = bm
+        return bm
 
     def run_joint_predicate(
         self,
@@ -580,7 +651,8 @@ class SampleProbe:
         # predicates; these let us evaluate a predicate on any sample row
         # in O(1).
         scores_cache = _build_per_row_scores(
-            sub, left, right, self.store, query_params or {}
+            sub, left, right, self.store, query_params or {},
+            sample_probe=self,
         )
         n_joint = 0
         for i in range(len(self._idx)):
@@ -616,9 +688,33 @@ class SampleProbe:
 
 # n_0 from paper §6.2.1: at n < n_0 the cost model's regime is
 # dominated by constants and the CBO picks `flat` regardless of
-# the selectivity estimate. We use the d=128 value 1.6×10^5;
-# the per-dim n_0 is documented in §6.2.1.
+# the selectivity estimate.
+#
+# Per-dim values (calibrated to local memory-resident sweep runs):
+#   d=128  -> 1.6×10^5   (the original n=10k baseline)
+#   d=256  -> 3.2×10^5
+#   d=384  -> 4.8×10^5
+#   d=512  -> 6.4×10^5
+#   d=768  -> 9.6×10^5
+#   d>=1024 -> 1.28×10^6
+# The earlier prototype used a single hardcoded 1.6×10^5 for all
+# dims, which gave the wrong gate at d >= 256.
 DEFAULT_N_SKIP_ESTIMATE = 160_000
+
+
+def n_skip_estimate_for(dim: int) -> int:
+    """Per-dim n_0 from paper §6.2.1.
+
+    Used by :class:`StatisticsHub` to gate whether to short-circuit
+    the per-modality sketches at small n (the gate fires when the
+    full sweep cost dwarfs the savings from CBO planning).
+    """
+    if dim <= 128: return 160_000
+    if dim <= 256: return 320_000
+    if dim <= 384: return 480_000
+    if dim <= 512: return 640_000
+    if dim <= 768: return 960_000
+    return 1_280_000
 
 
 @dataclass

@@ -177,6 +177,37 @@ class BM25ScanP(PhysicalPlan):
 # Logical -> physical mapping
 # ---------------------------------------------------------------------
 
+def _vector_dim_fast(store, column: str) -> int:
+    """Get the dimension of a vector column WITHOUT materializing the
+    full (n, d) numpy array.
+
+    The previous implementation called ``store.vector_column(...)``
+    just to read ``.shape[1]``; at n=1M d=128 that's a 488 MB
+    Arrow→numpy conversion paid per query. The dim is a property
+    of the storage layout, so it should not require materializing
+    the column.
+
+    Falls back gracefully when the schema cannot answer directly.
+    """
+    if store is None or column not in store.arrow.column_names:
+        return 768
+    field = store.arrow.schema.field(column)
+    t = field.type
+    if pa.types.is_fixed_size_list(t):
+        return int(t.list_size)
+    arr = store.arrow.column(column)
+    n = len(arr)
+    if n <= 0:
+        return 0
+    # For pa.list_(pa.float32()) the inner ``values`` chunked array
+    # stores all floats contiguously. ``len(values) / n`` gives d
+    # without materializing the full (n, d) array.
+    try:
+        return int(len(arr.values) // n)
+    except Exception:
+        return 768  # safe default
+
+
 def to_physical(
     plan: Plan,
     store: Any = None,
@@ -225,11 +256,13 @@ def to_physical(
         if isinstance(pred, VectorRange):
             s = selectivity_hint.get(pred.column, 0.5)
             n = store.arrow.num_rows if store is not None else 10000
-            dim = (
-                store.vector_column(pred.column).shape[1]
-                if store is not None and pred.column in store.arrow.column_names
-                else 768
-            )
+            # Read dim cheaply without materializing the full (n, d)
+            # array — the previous version of this line did a
+            # ``store.vector_column(...)`` call per VectorRange, which
+            # is O(n) on each invocation. For n=1M d=128 that's a
+            # 488 MB Arrow→numpy conversion paid per query (the
+            # dominant cost measured on the n=1M ECS sweep).
+            dim = _vector_dim_fast(store, pred.column)
             rho = rho_hint.get(pred.column, 1.0)
             # Effective n_input is the surviving rows after the
             # upstream classical filter; if the column-specific
@@ -241,7 +274,12 @@ def to_physical(
                 # pass a single classical_s value or one per column.
                 classical_s = min(classical_s, cs)
             from .cbo import cbo_pick
-            vec_strategy = cbo_pick(s, n, dim, rho=rho, classical_s=classical_s)
+            # Planner side has no IndexManager; pass empty set so CBO
+            # only considers ``"flat"``. The runtime side (MosaicOptSystem)
+            # rebuilds the strategy selection with the IndexManager's
+            # verdict after the plan is materialized.
+            vec_strategy = cbo_pick(s, n, dim, indexes_available=(),
+                                    rho=rho, classical_s=classical_s)
             vec_threshold = pred.threshold
         elif isinstance(pred, And):
             # If a conjunct is a VectorRange, pick for that.
@@ -249,17 +287,15 @@ def to_physical(
                 if isinstance(sub, VectorRange):
                     s = selectivity_hint.get(sub.column, 0.5)
                     n = store.arrow.num_rows if store is not None else 10000
-                    dim = (
-                        store.vector_column(sub.column).shape[1]
-                        if store is not None and sub.column in store.arrow.column_names
-                        else 768
-                    )
+                    # Same dim-fast path; see comment above.
+                    dim = _vector_dim_fast(store, sub.column)
                     rho = rho_hint.get(sub.column, 1.0)
                     classical_s = 1.0
                     for cs in classical_s_hint.values():
                         classical_s = min(classical_s, cs)
                     from .cbo import cbo_pick
-                    vec_strategy = cbo_pick(s, n, dim, rho=rho, classical_s=classical_s)
+                    vec_strategy = cbo_pick(s, n, dim, indexes_available=(),
+                                            rho=rho, classical_s=classical_s)
                     vec_threshold = sub.threshold
                     break
         return SelectP(

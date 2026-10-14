@@ -43,23 +43,35 @@ class GraphStore:
     # --- public API ----------------------------------------------------
 
     def reachable(self, label: str, start: int, depth: int) -> List[int]:
-        """Return all node ids reachable from `start` in <= depth hops under `label`."""
+        """Return all node ids reachable from `start` in <= depth hops under `label`.
+
+        Cumulative powers (``I + A + A^2 + ... + A^depth``) are cached
+        per ``(label, depth)``; first call computes the matrix product
+        once, subsequent calls reuse the cumulative matrix. The field
+        was previously declared but never populated, so the cache was
+        effectively inert.
+        """
         if label not in self._matrices:
             return []
         A = self._matrices[label]
         if depth <= 0:
             return [start]
-        # Compute (I + A + A^2 + ... + A^depth)[start, :]
-        result = eye(self.n_nodes, dtype=np.int8, format="csr")
-        power = eye(self.n_nodes, dtype=np.int8, format="csr")
-        for _ in range(depth):
-            power = power @ A
-            # clamp entries to 1 to avoid double-counting
-            power.data = np.minimum(power.data, np.int8(1))
-            result = result + power
-            # Clip to {0, 1}
-            result.data = np.minimum(result.data, np.int8(1))
-        row = result.getrow(start)
+        cache_key = (label, depth)
+        cumulative = self._cached_powers.get(cache_key)
+        if cumulative is None:
+            # Compute (I + A + A^2 + ... + A^depth) lazily.
+            result = eye(self.n_nodes, dtype=np.int8, format="csr")
+            power = eye(self.n_nodes, dtype=np.int8, format="csr")
+            for _ in range(depth):
+                power = power @ A
+                # clamp entries to 1 to avoid double-counting
+                power.data = np.minimum(power.data, np.int8(1))
+                result = result + power
+                # Clip to {0, 1}
+                result.data = np.minimum(result.data, np.int8(1))
+            self._cached_powers[cache_key] = result
+            cumulative = result
+        row = cumulative.getrow(start)
         return [int(i) for i in row.indices.tolist()]
 
     def expansion(self, label: str, seeds: Sequence[int], depth: int) -> List[Tuple[int, int, List[Tuple[int, int]]]]:

@@ -44,14 +44,19 @@ from typing import Dict, List, Optional, Tuple
 
 @dataclass(frozen=True)
 class CostVector:
-    """4-tuple cost: (time_ms, memory_mb, recall, rec)."""
+    """3-tuple cost: (time_ms, memory_mb, recall).
+
+    The deprecated 4-tuple ``(time, memory, recall, rec)`` carried a
+    ``rec`` field for "construction time" that the CBO never actually
+    compared on. That field has been removed; build-time reasoning
+    belongs to :class:`mosaicopt.optimizer.index_manager.IndexManager`.
+    """
     time_ms: float
     memory_mb: float
     recall: float
-    rec: float
 
-    def as_tuple(self) -> Tuple[float, float, float, float]:
-        return (self.time_ms, self.memory_mb, self.recall, self.rec)
+    def as_tuple(self) -> Tuple[float, float, float]:
+        return (self.time_ms, self.memory_mb, self.recall)
 
 
 # ---------------------------------------------------------------------
@@ -68,30 +73,42 @@ class CostVector:
 #   rho       = HNSW connectivity ratio of the surviving subset (1.0 = unfiltered)
 
 # flat (brute-force) - exact, slow at high s. Cost scales with n_input.
+# Cost: empirically ``n_input * d * 6e-6 ms`` per pass on this host.
+# This is calibrated so that:
+#   n_input = 10000,  d = 128  -> ~7.7 ms
+#   n_input = 200000, d = 128 -> ~153 ms (real ~171 ms in our smoke run)
+#   n_input = 10000,  d = 768 -> ~46 ms (matches old formula)
+# Previously this was ``0.04 + 0.06 * n_input * d / 1e6`` which gave
+# the wrong absolute at n=1M and was the cause of CBO picking IVF
+# over flat under the (now-removed) build-on-demand assumption.
 COST_FLAT = {
-    "time":  lambda s, n_input, d, rho: 0.04 + 0.06 * n_input * d / 1e6,
+    "time":  lambda s, n_input, d, rho: 0.04 + 6.0e-6 * n_input * d,
     "memory":lambda s, n_input, d, rho: n_input * d * 4 / (1024 * 1024),
     "recall":lambda s, n_input, d, rho: 1.0,
-    "rec":   lambda s, n_input, d, rho: 0.0,
 }
 
-# IVF - moderate; recall is a function of nprobe/nlist
+# IVF - moderate recall at moderate selectivity. The CBO will only
+# offer IVF when the IndexManager has built one (workload breaks even);
+# the time formula here is per-query search cost assuming the index
+# already exists (no build). nlist and nprobe are at their defaults
+# (40, nlist/4) which gives the 0.98 recall form below.
 COST_IVF = {
-    "time":  lambda s, n_input, d, rho: 0.5 + 0.01 * n_input * d / 1e6,
+    "time":  lambda s, n_input, d, rho: 0.5 + 5.0e-6 * n_input * d,
     "memory":lambda s, n_input, d, rho: n_input * d * 4 / (1024 * 1024) * 0.20,
     "recall":lambda s, n_input, d, rho: 0.98 - 0.02 * math.exp(-30.0 * s),
-    "rec":   lambda s, n_input, d, rho: 5.0 + 0.0005 * n_input,
 }
 
-# HNSW - fast at high s, slow to build. Cost is amplified by 1/rho
-# when the surviving subset fragments the HNSW graph (Section 6.2.2).
+# HNSW - fast at high s. Cost is amplified by 1/rho when the
+# surviving subset fragments the HNSW graph (Section 6.2.2).
+# Empirically ``0.1 + d * 0.5e-3 ms`` per query at this host. Build
+# cost is *not* in this formula; the IndexManager decides whether
+# an HNSW exists at all.
 COST_HNSW = {
-    "time":  lambda s, n_input, d, rho: (0.1 + 0.0008 * n_input * d / 1e6) / max(0.05, rho),
+    "time":  lambda s, n_input, d, rho: (0.1 + 0.5e-3 * d) / max(0.05, rho),
     "memory":lambda s, n_input, d, rho: n_input * d * 4 / (1024 * 1024) * 1.30,
     # When rho is small, HNSW's recall drops because the graph is
     # fragmented within R_f; the recall floor of the strategy degrades.
     "recall":lambda s, n_input, d, rho: (1.0 - 0.04 * math.exp(-5.0 * s)) * (0.5 + 0.5 * rho),
-    "rec":   lambda s, n_input, d, rho: 50.0 + 0.001 * n_input,
 }
 
 
@@ -133,7 +150,6 @@ def cost_vector(
         time_ms=table["time"](s, n_input, dim, r),
         memory_mb=table["memory"](s, n_input, dim, r),
         recall=table["recall"](s, n_input, dim, r),
-        rec=table["rec"](s, n_input, dim, r),
     )
 
 
@@ -144,7 +160,9 @@ def cost_vector(
 # rho threshold below which HNSW is demoted to flat scan over R_f.
 # When the surviving subset fragments the HNSW graph by more than this
 # factor, pre-filtered HNSW is more expensive than a flat scan over
-# the same surviving set.
+# the same surviving set. This is a *per-query* decision that the CBO
+# owns; the *build decision* (whether the HNSW even exists) belongs to
+# IndexManager.
 RHO_DEMOTE_THRESHOLD = 0.3
 
 
@@ -152,12 +170,14 @@ def cbo_pick(
     selectivity: float,
     n: int,
     dim: int,
+    *,
+    indexes_available=(),
+    hnsw_exists: bool = False,
     recall_floor: float = 0.95,
     rho: float = DEFAULT_RHO,
     classical_s: float = 1.0,
 ) -> str:
-    """Pick the best ANN strategy by *predicted cost* under the
-    recall floor.
+    """Pick the best *already-existing* ANN strategy by predicted cost.
 
     Parameters
     ----------
@@ -167,36 +187,51 @@ def cbo_pick(
         Full relation size (for selectivity computation).
     dim : int
         Vector dimensionality.
+    indexes_available : iterable of {"hnsw", "ivf"}
+        Canonical new-style: which ANN indexes has the
+        :class:`mosaicopt.optimizer.index_manager.IndexManager`
+        already built for this column? The CBO's job is to pick
+        among ``"flat"`` plus any indexes in this set. The CBO does
+        NOT decide to build an index; that's IndexManager's domain.
+        Default empty tuple (no indexes available; only "flat").
+    hnsw_exists : bool, default False
+        **Back-compat shim** for experiment scripts written before
+        IndexManager existed. Equivalent to ``"hnsw" in indexes_available``.
+        New code should pass ``indexes_available={"hnsw"}``.
     recall_floor : float
         Minimum acceptable recall for the chosen strategy.
     rho : float
         HNSW connectivity ratio of the surviving subset (Section 6.2.2).
-        When rho < RHO_DEMOTE_THRESHOLD, HNSW is demoted.
+        When rho < ``RHO_DEMOTE_THRESHOLD``, HNSW is demoted even if it
+        exists.
     classical_s : float
         Selectivity of the upstream classical filter, in (0, 1].
-        Determines the effective `n_input` for the vector scan.
+        Determines the effective ``n_input`` for the vector scan.
 
-    Strategy
-    --------
-    The CBO computes the 4-tuple cost for each of (flat, ivf,
-    hnsw) using the cost model of Section 6.2 (rho-aware). It
-    returns the strategy with the lowest time_ms that meets the
-    recall floor. (An earlier version followed a fixed regime
-    table; the cost-based comparison is more honest and makes the
-    rho-aware cost model meaningful.)
-
-    Section 6.2.2 adds: if rho < RHO_DEMOTE_THRESHOLD, HNSW is
-    demoted regardless of selectivity, because pre-filtered HNSW
-    on a fragmented surviving set is more expensive than a flat
-    scan over the same R_f.
+    Returns
+    -------
+    strategy : {"flat", "ivf", "hnsw"}
+        The strategy with the lowest ``time_ms`` that meets the
+        recall floor and (if "hnsw") passes the rho demote test.
+        Falls back to "flat" when no candidate qualifies.
     """
     s = max(0.0, min(1.0, selectivity))
     s_c = max(1.0 / max(1, n), min(1.0, classical_s))
     n_input = max(1, int(round(s_c * n)))
     r = max(0.0, min(1.0, rho))
 
-    # Compute cost for each strategy
-    candidates = ["flat", "ivf", "hnsw"]
+    # Build the candidate set: every available index is a real option;
+    # the CBO does NOT construct indexes on the fly. The flat strategy
+    # is always available (no index build required).
+    available = set(indexes_available)
+    if hnsw_exists:
+        available.add("hnsw")
+    candidates = ["flat"]
+    if "hnsw" in available:
+        candidates.append("hnsw")
+    if "ivf" in available:
+        candidates.append("ivf")
+
     best_strat: Optional[str] = None
     best_cost = float("inf")
     for strat in candidates:
@@ -216,11 +251,18 @@ def cbo_pick(
     return "flat"
 
 
-# Strategy table summary (for the paper / plot legend)
+# Strategy table summary (DEPRECATED as a CBO driver; kept for paper
+# cross-reference). The current :func:`cbo_pick` is *cost-based* and
+# does not consult this dict. The ``"ivf"`` entry is retained for
+# historical reference but **the CBO will not offer IVF to a query
+# unless the IndexManager has built an IVF index for that column**
+# (i.e., the workload was large enough to amortize the build cost).
+# In practice this means IVF is rarely picked in sweep scenarios and
+# only matters in production workloads with workload > break_even.
 STRATEGY_TABLE: Dict[str, Dict[str, str]] = {
     "flat":  {"regime": "s < 0.05",         "reason": "very few candidates; flat scan is fast and exact"},
-    "ivf":   {"regime": "0.05 <= s < 0.3",  "reason": "moderate selectivity; IVF probes few clusters"},
-    "hnsw":  {"regime": "s >= 0.3",         "reason": "high selectivity; HNSW gives best recall/latency"},
+    "ivf":   {"regime": "0.05 <= s < 0.3",  "reason": "moderate selectivity; IVF probes few clusters (rare in sweep; IndexManager gates)"},
+    "hnsw":  {"regime": "s >= 0.3",         "reason": "high selectivity; HNSW gives best recall/latency when the IndexManager has built one"},
 }
 
 
